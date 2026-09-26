@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Test Series</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app-root">
+
+  <!-- ============ AUTH VIEW ============ -->
+  <section id="view-auth" class="auth-shell hidden">
+    <div class="auth-visual">
+      <div>
+        <span class="brand-mark">TEST SERIES</span>
+        <h1 id="auth-headline">Sit the test.<br/>Know where you stand.</h1>
+        <p>Timed, subject-wise practice tests built from your own material — with a full breakdown of what you missed the moment you finish.</p>
+      </div>
+      <svg class="exam-clock" viewBox="0 0 120 120">
+        <circle class="face" cx="60" cy="60" r="50" />
+        <g class="tick">
+          <line x1="60" y1="12" x2="60" y2="18" />
+          <line x1="60" y1="102" x2="60" y2="108" />
+          <line x1="12" y1="60" x2="18" y2="60" />
+          <line x1="102" y1="60" x2="108" y2="60" />
+        </g>
+        <line class="hand" id="clock-min" x1="60" y1="60" x2="60" y2="26" />
+        <line class="hand" id="clock-hr" x1="60" y1="60" x2="82" y2="60" />
+      </svg>
+    </div>
+    <div class="auth-panel">
+      <div class="auth-card">
+        <h2 id="auth-title">Welcome back</h2>
+        <p class="sub" id="auth-sub">Log in to continue your prep.</p>
+        <div class="auth-error" id="auth-error"></div>
+        <form id="auth-form">
+          <div class="field">
+            <label for="auth-email">Email</label>
+            <input id="auth-email" type="email" autocomplete="email" required />
+          </div>
+          <div class="field">
+            <label for="auth-password">Password</label>
+            <input id="auth-password" type="password" autocomplete="current-password" required minlength="6" />
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%" id="auth-submit">Log in</button>
+        </form>
+        <div class="auth-switch">
+          <span id="auth-switch-text">New here?</span>
+          <button type="button" id="auth-switch-btn">Create an account</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ APP SHELL (dashboard / admin) ============ -->
+  <section id="view-app" class="hidden">
+    <div class="topbar">
+      <div class="brand">
+        <span class="brand-mark">TEST SERIES</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">◐</button>
+        <span id="whoami" style="font-size:13px;color:var(--text-muted);margin-right:4px;"></span>
+        <button class="btn btn-quiet btn-sm" id="signout-btn">Sign out</button>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="section-head"><h2>Your tests</h2></div>
+      <p class="section-sub">Pick a subject to begin. New subjects and questions get added as you go.</p>
+
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="subject">Subject-wise</button>
+        <button class="mode-tab" data-mode="sectional" disabled title="Coming once a subject has multiple sections">Sectional</button>
+        <button class="mode-tab" data-mode="full" disabled title="Coming once more than one subject is added">Full syllabus</button>
+      </div>
+
+      <div class="test-list" id="test-list">
+        <div class="test-row-empty">Loading…</div>
+      </div>
+
+      <div class="admin-panel">
+        <details>
+          <summary>Add a subject or paste in new questions</summary>
+          <div class="admin-grid">
+            <div>
+              <div class="field">
+                <label for="new-subject-name">New subject name</label>
+                <input id="new-subject-name" type="text" placeholder="e.g. Modern Indian History" />
+              </div>
+              <div class="field">
+                <label for="new-subject-duration">Test duration (minutes)</label>
+                <input id="new-subject-duration" type="number" value="30" min="1" />
+              </div>
+              <button class="btn btn-sm" id="create-subject-btn">Create subject</button>
+
+              <div class="field" style="margin-top:22px;">
+                <label for="target-subject">Add questions to</label>
+                <select id="target-subject" style="width:100%;padding:9px 10px;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-sm);"></select>
+              </div>
+              <textarea id="raw-questions" placeholder="Paste raw questions here, e.g.:
+
+1. What is the powerhouse of the cell?
+A) Nucleus
+B) Mitochondria
+C) Ribosome
+D) Golgi apparatus
+Answer: B
+Topic: Cell Biology"></textarea>
+              <div style="margin-top:10px;"><button class="btn btn-primary btn-sm" id="parse-btn">Parse &amp; add questions</button></div>
+              <div class="parse-report" id="parse-report"></div>
+            </div>
+            <div class="admin-help">
+              <p><strong>Format each question like this</strong> (blank line between questions):</p>
+              <p><code>1. Question text?</code><br/>
+              <code>A) first option</code><br/>
+              <code>B) second option</code><br/>
+              <code>C) third option</code><br/>
+              <code>D) fourth option</code><br/>
+              <code>Answer: B</code></p>
+              <p>Optional extra lines per question:<br/>
+              <code>Topic: some topic name</code> — used for the strong/weak breakdown after a test.<br/>
+              <code>Explanation: why B is correct</code> — shown on the results page.</p>
+              <p>The parser is fairly tolerant of "1)" vs "1.", "A." vs "A)", and "Correct answer:" vs "Answer:" — but if a block can't be understood it will be skipped and listed, so nothing gets added silently wrong.</p>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TEST-TAKING VIEW ============ -->
+  <section id="view-test" class="hidden">
+    <div class="test-shell">
+      <div class="test-main">
+        <div class="test-header">
+          <div class="test-title" id="test-subject-name">Subject</div>
+          <div class="q-count" id="q-count">Q 1 / 20</div>
+        </div>
+
+        <div id="q-topic" class="q-topic hidden"></div>
+        <div class="q-text" id="q-text"></div>
+        <div id="q-options"></div>
+
+        <div class="test-actions">
+          <button class="btn" id="btn-mark-review">Mark for review &amp; next</button>
+          <button class="btn" id="btn-clear">Clear response</button>
+          <button class="btn btn-primary" id="btn-save-next">Save &amp; next</button>
+        </div>
+      </div>
+
+      <div class="palette-panel">
+        <div class="timer" id="timer">30:00</div>
+        <div class="legend">
+          <div class="legend-item"><span class="legend-dot" style="background:var(--status-not-visited)"></span>Not visited</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--status-not-answered)"></span>Not answered</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--status-answered)"></span>Answered</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--status-marked)"></span>Marked</div>
+        </div>
+        <div class="palette-grid" id="palette-grid"></div>
+        <div class="submit-block">
+          <button class="btn btn-danger" style="width:100%" id="btn-submit-test">Submit test</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS VIEW ============ -->
+  <section id="view-results" class="hidden">
+    <div class="topbar">
+      <div class="brand"><span class="brand-mark">TEST SERIES</span></div>
+      <div class="topbar-actions">
+        <button class="btn btn-sm" id="back-to-dashboard">Back to tests</button>
+      </div>
+    </div>
+    <div class="main">
+      <div class="section-head"><h2 id="results-subject-name">Results</h2></div>
+      <p class="section-sub" id="results-meta"></p>
+
+      <div class="results-summary" id="results-summary"></div>
+
+      <div class="topic-bars" id="topic-bars"></div>
+
+      <h3 style="margin-bottom:16px;">Question review</h3>
+      <div id="review-list"></div>
+    </div>
+  </section>
+
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
