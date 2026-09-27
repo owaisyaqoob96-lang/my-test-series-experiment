@@ -6,6 +6,11 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+
+// Only this account can create subjects / add questions — everyone else
+// who signs up can log in and take tests, but won't see the admin panel,
+// and the database rules block them from writing to it even if they tried.
+const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
 import {
   getFirestore, collection, addDoc, getDocs, getCountFromServer,
   serverTimestamp
@@ -59,7 +64,8 @@ document.getElementById("theme-toggle").addEventListener("click", () => {
 })();
 
 // ============================================================
-// Auth
+// Auth — anyone can create an account and take tests; only the
+// admin account (ADMIN_UID above) can add subjects/questions.
 // ============================================================
 let isSignupMode = false;
 const authForm = document.getElementById("auth-form");
@@ -94,6 +100,7 @@ function friendlyAuthError(err) {
   if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")) return "That email and password don't match our records.";
   if (code.includes("weak-password")) return "Password should be at least 6 characters.";
   if (code.includes("invalid-email")) return "That doesn't look like a valid email address.";
+  if (code.includes("too-many-requests")) return "Too many attempts — please wait a bit and try again.";
   return "Something went wrong. Please try again.";
 }
 
@@ -121,6 +128,7 @@ document.getElementById("signout-btn").addEventListener("click", () => signOut(a
 onAuthStateChanged(auth, (user) => {
   if (user) {
     document.getElementById("whoami").textContent = user.email;
+    document.querySelector(".admin-panel").classList.toggle("hidden", user.uid !== ADMIN_UID);
     showView("view-app");
     loadSubjects();
   } else {
