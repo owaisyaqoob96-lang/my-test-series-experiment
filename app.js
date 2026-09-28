@@ -4,7 +4,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, signOut
+  createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup,
+  sendEmailVerification, applyActionCode
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
 
 // Only this account can create subjects / add questions — everyone else
@@ -33,7 +34,7 @@ const db = getFirestore(fbApp);
 // ============================================================
 // View switching
 // ============================================================
-const views = ["view-auth", "view-app", "view-test", "view-results"];
+const views = ["view-auth", "view-verify", "view-app", "view-test", "view-results"];
 function showView(name) {
   views.forEach(v => document.getElementById(v).classList.toggle("hidden", v !== name));
 }
@@ -104,15 +105,52 @@ function friendlyAuthError(err) {
   return "Something went wrong. Please try again.";
 }
 
+// Known throwaway-inbox services. Real providers of every kind (Gmail,
+// Outlook, college and work addresses...) are allowed; only these are blocked.
+const DISPOSABLE_DOMAINS = new Set([
+  "mailinator.com","guerrillamail.com","guerrillamail.info","guerrillamail.biz","guerrillamail.de",
+  "guerrillamail.net","guerrillamail.org","sharklasers.com","spam4.me","grr.la","10minutemail.com",
+  "10minutemail.net","10minutemail.co.uk","temp-mail.org","temp-mail.io","tempmail.com","tempmail.net",
+  "tempmail.plus","tempmailaddress.com","throwawaymail.com","throwam.com","yopmail.com","yopmail.fr",
+  "yopmail.net","trashmail.com","trashmail.net","trash-mail.com","maildrop.cc","dispostable.com",
+  "fakeinbox.com","fakemailgenerator.com","getnada.com","getairmail.com","mailnesia.com","mintemail.com",
+  "mytemp.email","moakt.com","moakt.cc","tempinbox.com","emailondeck.com","discard.email","discardmail.com",
+  "spamgourmet.com","mailcatch.com","meltmail.com","mohmal.com","byom.de","anonbox.net","tempr.email",
+  "mailtemp.top","tmpmail.org","tmpmail.net","tmail.ws","temp-mail.de","inboxbear.com","incognitomail.com",
+  "mailexpire.com","mailforspam.com","spambox.us","spamex.com","spamfree24.org","spamherelots.com",
+  "trbvm.com","wegwerfmail.de","wegwerfmail.net","wegwerfmail.org","jetable.org","correotemporal.org",
+  "einrot.com","filzmail.com","harakirimail.com","hidemail.de","hulapla.de","klassmaster.com","mt2015.com",
+  "no-spam.ws","objectmail.com","oneoffemail.com","pookmail.com","proxymail.eu","rcpt.at","safetymail.info",
+  "sneakemail.com","spambog.com","teleworm.us","tempemail.net","trash2009.com","veryrealemail.com",
+  "willselfdestruct.com","winemaven.info","zoemail.org","dropmail.me","mailslurp.com",
+  "guerrillamailblock.com","burnermail.io"
+]);
+
+let pendingNotice = null; // { ok: boolean, text: string } shown on the login screen
+
+function showAuthNotice(ok, text) {
+  authError.style.color = ok ? "var(--success)" : "var(--danger)";
+  authError.textContent = text;
+}
+
 authForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+  authError.style.color = "var(--danger)";
   authError.textContent = "";
+  pendingNotice = null;
   authSubmit.disabled = true;
   const email = document.getElementById("auth-email").value.trim();
   const password = document.getElementById("auth-password").value;
   try {
     if (isSignupMode) {
-      await createUserWithEmailAndPassword(auth, email, password);
+      const domain = email.split("@")[1] ? email.split("@")[1].toLowerCase() : "";
+      if (DISPOSABLE_DOMAINS.has(domain)) {
+        authError.textContent = "Please use a permanent email address — temporary/disposable inboxes aren't allowed here.";
+        return;
+      }
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      await sendEmailVerification(cred.user);
+      // onAuthStateChanged routes them to the "activate your account" screen.
     } else {
       await signInWithEmailAndPassword(auth, email, password);
     }
@@ -123,18 +161,82 @@ authForm.addEventListener("submit", async (e) => {
   }
 });
 
-document.getElementById("signout-btn").addEventListener("click", () => signOut(auth));
+document.getElementById("google-signin-btn").addEventListener("click", async () => {
+  authError.style.color = "var(--danger)";
+  authError.textContent = "";
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  } catch (err) {
+    authError.textContent = "Couldn't sign in with Google — please try again.";
+  }
+});
 
-onAuthStateChanged(auth, (user) => {
-  if (user) {
+document.getElementById("signout-btn").addEventListener("click", () => signOut(auth));
+document.getElementById("verify-signout-btn").addEventListener("click", () => signOut(auth));
+
+// ---------- Account activation (email link) ----------
+document.getElementById("verify-check-btn").addEventListener("click", async () => {
+  const verifyError = document.getElementById("verify-error");
+  verifyError.style.color = "var(--danger)";
+  verifyError.textContent = "";
+  await auth.currentUser.reload();
+  if (auth.currentUser.emailVerified) {
+    routeUser(auth.currentUser);
+  } else {
+    verifyError.textContent = "Not activated yet — click the link in the email first.";
+  }
+});
+
+document.getElementById("verify-resend-btn").addEventListener("click", async () => {
+  const verifyError = document.getElementById("verify-error");
+  try {
+    await sendEmailVerification(auth.currentUser);
+    verifyError.style.color = "var(--success)";
+    verifyError.textContent = "A new activation link is on its way.";
+  } catch (err) {
+    verifyError.style.color = "var(--danger)";
+    verifyError.textContent = err.code && err.code.includes("too-many-requests")
+      ? "Please wait a few minutes before requesting another link."
+      : "Couldn't send the link right now — please try again shortly.";
+  }
+});
+
+function routeUser(user) {
+  if (user && user.emailVerified) {
     document.getElementById("whoami").textContent = user.email;
     document.querySelector(".admin-panel").classList.toggle("hidden", user.uid !== ADMIN_UID);
     showView("view-app");
     loadSubjects();
+  } else if (user && !user.emailVerified) {
+    document.getElementById("verify-email-text").textContent = user.email;
+    document.getElementById("verify-error").textContent = "";
+    showView("view-verify");
   } else {
     renderAuthMode();
+    if (pendingNotice) showAuthNotice(pendingNotice.ok, pendingNotice.text);
     showView("view-auth");
   }
+}
+
+// When someone clicks the activation link in their email, they land back on
+// this site with ?mode=verifyEmail&oobCode=... — activate, then send them to log in.
+const urlParams = new URLSearchParams(window.location.search);
+const actionReady = (async () => {
+  if (urlParams.get("mode") === "verifyEmail" && urlParams.get("oobCode")) {
+    try {
+      await applyActionCode(auth, urlParams.get("oobCode"));
+      pendingNotice = { ok: true, text: "Your account is activated — log in to continue." };
+    } catch (err) {
+      pendingNotice = { ok: false, text: "That activation link is invalid or has expired. Log in and we'll send you a fresh one." };
+    }
+    await signOut(auth);
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+})();
+
+onAuthStateChanged(auth, async () => {
+  await actionReady;
+  routeUser(auth.currentUser);
 });
 
 // ============================================================
