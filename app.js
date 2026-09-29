@@ -14,7 +14,7 @@ import {
 const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
 import {
   getFirestore, collection, addDoc, getDocs, getCountFromServer,
-  serverTimestamp
+  serverTimestamp, deleteDoc, doc
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -105,8 +105,6 @@ function friendlyAuthError(err) {
   return "Something went wrong. Please try again.";
 }
 
-// Known throwaway-inbox services. Real providers of every kind (Gmail,
-// Outlook, college and work addresses...) are allowed; only these are blocked.
 const DISPOSABLE_DOMAINS = new Set([
   "mailinator.com","guerrillamail.com","guerrillamail.info","guerrillamail.biz","guerrillamail.de",
   "guerrillamail.net","guerrillamail.org","sharklasers.com","spam4.me","grr.la","10minutemail.com",
@@ -126,7 +124,7 @@ const DISPOSABLE_DOMAINS = new Set([
   "guerrillamailblock.com","burnermail.io"
 ]);
 
-let pendingNotice = null; // { ok: boolean, text: string } shown on the login screen
+let pendingNotice = null;
 
 function showAuthNotice(ok, text) {
   authError.style.color = ok ? "var(--success)" : "var(--danger)";
@@ -150,7 +148,6 @@ authForm.addEventListener("submit", async (e) => {
       }
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       await sendEmailVerification(cred.user);
-      // onAuthStateChanged routes them to the "activate your account" screen.
     } else {
       await signInWithEmailAndPassword(auth, email, password);
     }
@@ -218,8 +215,6 @@ function routeUser(user) {
   }
 }
 
-// When someone clicks the activation link in their email, they land back on
-// this site with ?mode=verifyEmail&oobCode=... — activate, then send them to log in.
 const urlParams = new URLSearchParams(window.location.search);
 const actionReady = (async () => {
   if (urlParams.get("mode") === "verifyEmail" && urlParams.get("oobCode")) {
@@ -271,24 +266,56 @@ function renderTestList() {
     return;
   }
   listEl.innerHTML = "";
+  
+  const isAdmin = auth.currentUser && auth.currentUser.uid === ADMIN_UID;
+
   subjectsCache.forEach(s => {
     const row = document.createElement("div");
     row.className = "test-row";
     const hasQuestions = (s.questionCount || 0) > 0;
+    
+    // Add delete button exclusively for admin
+    const deleteBtn = isAdmin ? `<button class="btn btn-sm" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${s.id}">Delete</button>` : "";
+
     row.innerHTML = `
       <div class="test-row-info">
         <h3>${escapeHtml(s.name)}</h3>
         <div class="test-row-meta">${s.questionCount || 0} questions · ${s.durationMinutes || 30} min</div>
       </div>
-      <button class="btn btn-primary btn-sm" ${hasQuestions ? "" : "disabled"} data-subject-id="${s.id}">
-        ${hasQuestions ? "Start test" : "No questions yet"}
-      </button>
+      <div style="display: flex; align-items: center;">
+        <button class="btn btn-primary btn-sm" ${hasQuestions ? "" : "disabled"} data-subject-id="${s.id}">
+          ${hasQuestions ? "Start test" : "No questions yet"}
+        </button>
+        ${deleteBtn}
+      </div>
     `;
     listEl.appendChild(row);
   });
+
   listEl.querySelectorAll("button[data-subject-id]").forEach(btn => {
     btn.addEventListener("click", () => startTest(btn.getAttribute("data-subject-id")));
   });
+
+  // Attach delete logic for admin
+  if (isAdmin) {
+    listEl.querySelectorAll("button[data-delete-id]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (confirm("Are you sure you want to delete this test? This cannot be undone.")) {
+          btn.disabled = true;
+          btn.textContent = "...";
+          try {
+            await deleteDoc(doc(db, "subjects", btn.getAttribute("data-delete-id")));
+            await loadSubjects(); // Refresh the list
+          } catch (e) {
+            console.error(e);
+            alert("Couldn't delete. Please try again.");
+            btn.disabled = false;
+            btn.textContent = "Delete";
+          }
+        }
+      });
+    });
+  }
 }
 
 function renderSubjectSelect() {
