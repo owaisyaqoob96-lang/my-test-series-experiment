@@ -530,11 +530,12 @@ document.getElementById("file-upload").addEventListener("change", async function
 // ============================================================
 function parseQuestions(rawText) {
   
+  // FIXED BUG: Safely escaping the backtick character for the bundler
   let cleanRaw = rawText
     .replace(/\*\*/g, '')           
     .replace(/###\s*/g, '')         
     .replace(/^\s*\*\s+/gm, '')     
-    .replace(/`/g, '');             
+    .replace(/[`]/g, '');             
 
   const lines = cleanRaw.replace(/\r\n/g, '\n').split('\n');
   const results = [];
@@ -694,7 +695,6 @@ document.getElementById("parse-btn").addEventListener("click", () => {
   const { results, errors } = parseQuestions(raw);
   pendingImport = results; 
 
-  // FIXED BUG: Using a safe array join instead of nested backticks
   let html = `<div style="padding: 15px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; margin-top: 15px;">
                 <h3 style="margin-bottom: 10px; font-size: 1.1rem;">Preview Summary</h3>
                 <p style="margin: 0 0 5px 0;"><strong>Valid questions found:</strong> <span style="color:var(--success); font-weight:bold;">${results.length}</span></p>
