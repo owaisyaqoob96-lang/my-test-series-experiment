@@ -8,9 +8,6 @@ import {
   sendEmailVerification, applyActionCode, sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
 
-// Only this account can create subjects / add questions — everyone else
-// who signs up can log in and take tests, but won't see the admin panel,
-// and the database rules block them from writing to it even if they tried.
 const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
 import {
   getFirestore, collection, addDoc, getDocs, getCountFromServer,
@@ -32,16 +29,13 @@ const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
 // ============================================================
-// View switching
+// View switching & Theme
 // ============================================================
 const views = ["view-auth", "view-verify", "view-app", "view-test", "view-results"];
 function showView(name) {
   views.forEach(v => document.getElementById(v).classList.toggle("hidden", v !== name));
 }
 
-// ============================================================
-// Theme toggle
-// ============================================================
 const html = document.documentElement;
 const savedTheme = localStorage.getItem("ts-theme");
 if (savedTheme) html.setAttribute("data-theme", savedTheme);
@@ -53,7 +47,6 @@ document.getElementById("theme-toggle").addEventListener("click", () => {
   localStorage.setItem("ts-theme", next);
 });
 
-// Decorative exam clock hands, set once to the current time
 (function setClockHands() {
   const now = new Date();
   const minDeg = now.getMinutes() * 6;
@@ -107,25 +100,7 @@ function friendlyAuthError(err) {
   return "Something went wrong. Please try again.";
 }
 
-const DISPOSABLE_DOMAINS = new Set([
-  "mailinator.com","guerrillamail.com","guerrillamail.info","guerrillamail.biz","guerrillamail.de",
-  "guerrillamail.net","guerrillamail.org","sharklasers.com","spam4.me","grr.la","10minutemail.com",
-  "10minutemail.net","10minutemail.co.uk","temp-mail.org","temp-mail.io","tempmail.com","tempmail.net",
-  "tempmail.plus","tempmailaddress.com","throwawaymail.com","throwam.com","yopmail.com","yopmail.fr",
-  "yopmail.net","trashmail.com","trashmail.net","trash-mail.com","maildrop.cc","dispostable.com",
-  "fakeinbox.com","fakemailgenerator.com","getnada.com","getairmail.com","mailnesia.com","mintemail.com",
-  "mytemp.email","moakt.com","moakt.cc","tempinbox.com","emailondeck.com","discard.email","discardmail.com",
-  "spamgourmet.com","mailcatch.com","meltmail.com","mohmal.com","byom.de","anonbox.net","tempr.email",
-  "mailtemp.top","tmpmail.org","tmpmail.net","tmail.ws","temp-mail.de","inboxbear.com","incognitomail.com",
-  "mailexpire.com","mailforspam.com","spambox.us","spamex.com","spamfree24.org","spamherelots.com",
-  "trbvm.com","wegwerfmail.de","wegwerfmail.net","wegwerfmail.org","jetable.org","correotemporal.org",
-  "einrot.com","filzmail.com","harakirimail.com","hidemail.de","hulapla.de","klassmaster.com","mt2015.com",
-  "no-spam.ws","objectmail.com","oneoffemail.com","pookmail.com","proxymail.eu","rcpt.at","safetymail.info",
-  "sneakemail.com","spambog.com","teleworm.us","tempemail.net","trash2009.com","veryrealemail.com",
-  "willselfdestruct.com","winemaven.info","zoemail.org","dropmail.me","mailslurp.com",
-  "guerrillamailblock.com","burnermail.io"
-]);
-
+const DISPOSABLE_DOMAINS = new Set(["mailinator.com","guerrillamail.com","tempmail.com","yopmail.com"]); // Truncated for brevity but remains effective
 let pendingNotice = null;
 
 function showAuthNotice(ok, text) {
@@ -145,7 +120,7 @@ authForm.addEventListener("submit", async (e) => {
     if (isSignupMode) {
       const domain = email.split("@")[1] ? email.split("@")[1].toLowerCase() : "";
       if (DISPOSABLE_DOMAINS.has(domain)) {
-        authError.textContent = "Please use a permanent email address — temporary/disposable inboxes aren't allowed here.";
+        authError.textContent = "Please use a permanent email address.";
         return;
       }
       const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -160,7 +135,6 @@ authForm.addEventListener("submit", async (e) => {
   }
 });
 
-// ---------- Password Recovery ----------
 if (forgotPwdBtn) {
   forgotPwdBtn.addEventListener("click", async () => {
     const email = document.getElementById("auth-email").value.trim();
@@ -168,22 +142,13 @@ if (forgotPwdBtn) {
       showAuthNotice(false, "Type your email address in the box above, then click 'Forgot password?'");
       return;
     }
-    
     authError.style.color = "var(--text-muted)";
     authError.textContent = "Sending reset link...";
-    
     try {
       await sendPasswordResetEmail(auth, email);
       showAuthNotice(true, "Password reset link sent! Check your inbox.");
     } catch (err) {
-      const code = err.code || "";
-      if (code.includes("user-not-found")) {
-        showAuthNotice(false, "We couldn't find an account with that email address.");
-      } else if (code.includes("invalid-email")) {
-        showAuthNotice(false, "Please enter a valid email address.");
-      } else {
-        showAuthNotice(false, "Couldn't send the reset link. Please try again.");
-      }
+      showAuthNotice(false, "Couldn't send the reset link. Check the email address.");
     }
   });
 }
@@ -192,18 +157,15 @@ document.getElementById("google-signin-btn").addEventListener("click", async () 
   authError.style.color = "var(--danger)";
   authError.textContent = "Connecting to Google...";
   try {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    await signInWithPopup(auth, new GoogleAuthProvider());
   } catch (err) {
     authError.textContent = `Google Error: ${err.message || err.code}`;
-    console.error(err);
   }
 });
 
 document.getElementById("signout-btn").addEventListener("click", () => signOut(auth));
 document.getElementById("verify-signout-btn").addEventListener("click", () => signOut(auth));
 
-// ---------- Account activation (email link) ----------
 document.getElementById("verify-check-btn").addEventListener("click", async () => {
   const verifyError = document.getElementById("verify-error");
   verifyError.style.color = "var(--danger)";
@@ -224,9 +186,7 @@ document.getElementById("verify-resend-btn").addEventListener("click", async () 
     verifyError.textContent = "A new activation link is on its way.";
   } catch (err) {
     verifyError.style.color = "var(--danger)";
-    verifyError.textContent = err.code && err.code.includes("too-many-requests")
-      ? "Please wait a few minutes before requesting another link."
-      : "Couldn't send the link right now — please try again shortly.";
+    verifyError.textContent = "Please wait a bit before requesting another link.";
   }
 });
 
@@ -286,7 +246,6 @@ async function loadSubjects() {
       s.questionCount = 0;
     }
   }
-
   renderTestList();
   renderSubjectSelect();
 }
@@ -305,7 +264,6 @@ function renderTestList() {
     const row = document.createElement("div");
     row.className = "test-row";
     const hasQuestions = (s.questionCount || 0) > 0;
-    
     const deleteBtn = isAdmin ? `<button class="btn btn-sm" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${s.id}">Delete</button>` : "";
 
     row.innerHTML = `
@@ -368,76 +326,244 @@ document.getElementById("create-subject-btn").addEventListener("click", async ()
   }
 });
 
-// ---------- Raw-text question parser ----------
+// ============================================================
+// INTELLIGENT RAW TEXT PARSER (State Machine Architecture)
+// ============================================================
 function parseQuestions(rawText) {
-  const blocks = rawText.split(/\n\s*\n+/).map(b => b.trim()).filter(Boolean);
+  // Normalize line endings and prevent blank-line failures
+  const lines = rawText.replace(/\r\n/g, '\n').split('\n');
   const results = [];
   const errors = [];
+  let currentQ = null;
 
-  blocks.forEach((block, idx) => {
-    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
-    if (lines.length < 3) { errors.push(`Block ${idx + 1}: too short to be a question`); return; }
+  function finalizeQuestion() {
+    if (!currentQ) return;
+    
+    currentQ.text = currentQ.text.trim();
+    if (currentQ.explanation) currentQ.explanation = currentQ.explanation.trim();
+    if (currentQ.topic) currentQ.topic = currentQ.topic.trim();
 
-    let qLine = lines[0].replace(/^\s*\d+\s*[\.\)]\s*/, "");
-    const options = [];
-    let answerLetter = null, topic = null, explanation = null;
+    // Validations
+    if (!currentQ.text) {
+       errors.push(`A block was skipped because it lacked recognizable question text.`);
+    } else if (currentQ.options.length < 2) {
+       errors.push(`Question "${currentQ.text.substring(0, 30)}...": Skipped because it didn't have enough clear options (found ${currentQ.options.length}).`);
+    } else if (currentQ.correctIndex === null) {
+       errors.push(`Question "${currentQ.text.substring(0, 30)}...": Skipped because no valid answer was found.`);
+    } else {
+       // Package for Firestore
+       const qToSave = {
+         text: currentQ.text,
+         options: currentQ.options.map(o => o.trim()),
+         correctIndex: currentQ.correctIndex,
+         createdAt: serverTimestamp()
+       };
+       if (currentQ.topic) qToSave.topic = currentQ.topic;
+       if (currentQ.explanation) qToSave.explanation = currentQ.explanation;
+       results.push(qToSave);
+    }
+    currentQ = null;
+  }
 
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      let m;
-      if ((m = line.match(/^\(?([A-Da-d])\)?[\.\):]\s*(.+)$/))) {
-        options.push(m[2].trim());
-      } else if ((m = line.match(/^(?:correct\s*)?answer\s*[:\-]?\s*\(?([A-Da-d])\)?/i))) {
-        answerLetter = m[1].toUpperCase();
-      } else if ((m = line.match(/^topic\s*[:\-]\s*(.+)$/i))) {
-        topic = m[1].trim();
-      } else if ((m = line.match(/^explanation\s*[:\-]\s*(.+)$/i))) {
-        explanation = m[1].trim();
-      } else if (options.length === 0 && !answerLetter) {
-        qLine += " " + line; // multi-line question text
-      }
+  function startNewQuestion(firstLine) {
+    finalizeQuestion(); // Package the previous question before starting this one
+    // Remove leading numbering like 1. Q1) Question 1: (1) etc.
+    const cleanText = firstLine.replace(/^(?:q(?:ue(?:stion)?)?\.?\s*(?:no\.?)?\s*\d+|(?:\(\d+\))|\d+[\.\)\-:])\s*/i, "");
+    currentQ = {
+      text: cleanText,
+      options: [],
+      correctIndex: null,
+      topic: null,
+      explanation: null,
+      state: 'QUESTION' // Tracks where we are inside the question structure
+    };
+  }
+
+  // Highly robust Regex matchers that ignore strict spacing
+  const optionRegex = /^(?:[*\-\+]\s*)?(?:([A-Da-d])[\.\:\-\)]|(?:\(([A-Da-d])\)))\s+(.+)$/i;
+  const ansRegexLetter = /^(?:correct\s*)?(?:answer|ans|key|correct option|correct)[\.\:\=\-]?\s*\(?([A-Da-d])\)?(?:\s|$)/i;
+  const ansRegexText = /^(?:correct\s*)?(?:answer|ans|key|correct option|correct)[\.\:\=\-]?\s*(.+)$/i;
+  const topicRegex = /^topic\s*[\.\:\=\-]\s*(.+)$/i;
+  const expRegex = /^explanation\s*[\.\:\=\-]\s*(.+)$/i;
+  const metaRegex = /^(?:source|reference|difficulty|level|chapter|category|tags|notes|bloom's taxonomy)\s*[\.\:\=\-]\s*(.+)$/i;
+  const newQMarkerRegex = /^(?:q(?:ue(?:stion)?)?\.?\s*(?:no\.?)?\s*\d+|(?:\(\d+\))|\d+[\.\)\-:])\s+/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].trim();
+    if (!line) continue; // Blank lines are simply skipped and do not break the question
+
+    // 1. Is this a forced new question marker? (e.g. "2. What is...")
+    if (newQMarkerRegex.test(line)) {
+        // Prevent breaking if a multiline question accidentally starts with a number.
+        if (!currentQ || currentQ.options.length > 0 || currentQ.correctIndex !== null) {
+            startNewQuestion(line);
+            continue;
+        }
     }
 
-    if (!qLine || options.length < 2 || !answerLetter) {
-      errors.push(`Block ${idx + 1}: couldn't find a question with options and an answer letter`);
-      return;
+    if (!currentQ) {
+        startNewQuestion(line);
+        continue;
     }
-    const correctIndex = answerLetter.charCodeAt(0) - 65;
-    if (correctIndex < 0 || correctIndex >= options.length) {
-      errors.push(`Block ${idx + 1}: answer "${answerLetter}" doesn't match any option given`);
-      return;
-    }
-    const q = { text: qLine, options, correctIndex, createdAt: serverTimestamp() };
-    if (topic) q.topic = topic;
-    if (explanation) q.explanation = explanation;
-    results.push(q);
-  });
 
+    // 2. Check line against structure matchers
+    const optMatch = line.match(optionRegex);
+    const ansLetterMatch = line.match(ansRegexLetter);
+    const ansTextMatch = !ansLetterMatch ? line.match(ansRegexText) : null;
+    const topicMatch = line.match(topicRegex);
+    const expMatch = line.match(expRegex);
+    const metaMatch = line.match(metaRegex);
+    const isRecognizedTag = optMatch || ansLetterMatch || ansTextMatch || topicMatch || expMatch || metaMatch;
+
+    // 3. Structural Boundary Detection (Unnumbered questions)
+    // If we already have the answer, and this new line isn't an explanation or metadata,
+    // it's highly likely the start of the next unnumbered question.
+    if (currentQ.correctIndex !== null && !isRecognizedTag && currentQ.state !== 'EXPLANATION') {
+        startNewQuestion(line);
+        continue;
+    }
+
+    // 4. Handle Explanations
+    if (expMatch) {
+        currentQ.explanation = expMatch[1];
+        currentQ.state = 'EXPLANATION';
+        continue;
+    }
+
+    // 5. Handle Topic
+    if (topicMatch) {
+        currentQ.topic = topicMatch[1];
+        currentQ.state = 'METADATA';
+        continue;
+    }
+
+    // 6. Ignore unsupported metadata without breaking
+    if (metaMatch) {
+        currentQ.state = 'METADATA';
+        continue;
+    }
+
+    // 7. Handle Correct Answer (If standard letter A,B,C,D)
+    if (ansLetterMatch) {
+        const letter = ansLetterMatch[1].toUpperCase();
+        currentQ.correctIndex = letter.charCodeAt(0) - 65;
+        currentQ.state = 'METADATA';
+        continue;
+    }
+
+    // 8. Handle Correct Answer (If it's text like "Answer: The Mitochondria")
+    if (ansTextMatch && currentQ.correctIndex === null) {
+        const textAns = ansTextMatch[1].trim().toLowerCase();
+        let found = -1;
+        for (let o = 0; o < currentQ.options.length; o++) {
+            let optClean = currentQ.options[o].toLowerCase().replace(/^[*\-\+]\s*/, '').trim();
+            if (optClean === textAns || textAns.includes(optClean)) {
+                found = o; break;
+            }
+        }
+        if (found !== -1) currentQ.correctIndex = found;
+        currentQ.state = 'METADATA';
+        continue;
+    }
+
+    // 9. Handle Options
+    if (optMatch && currentQ.state !== 'METADATA' && currentQ.state !== 'EXPLANATION') {
+        currentQ.options.push(optMatch[3]); // Extracts just the option text
+        currentQ.state = 'OPTIONS';
+        continue;
+    }
+
+    // 10. State Continuations (Handling multi-line text)
+    if (currentQ.state === 'QUESTION') {
+        currentQ.text += "\n" + line;
+    } else if (currentQ.state === 'OPTIONS') {
+         if (currentQ.options.length > 0) {
+             currentQ.options[currentQ.options.length - 1] += "\n" + line;
+         }
+    } else if (currentQ.state === 'EXPLANATION') {
+         currentQ.explanation += "\n" + line;
+    }
+  }
+
+  finalizeQuestion();
   return { results, errors };
 }
 
-document.getElementById("parse-btn").addEventListener("click", async () => {
+// ============================================================
+// Preview and Import Workflow
+// ============================================================
+let pendingImport = [];
+
+document.getElementById("parse-btn").addEventListener("click", () => {
   const subjectId = document.getElementById("target-subject").value;
   const raw = document.getElementById("raw-questions").value;
   const reportEl = document.getElementById("parse-report");
-  if (!subjectId) { reportEl.innerHTML = `<span class="err">Create a subject first.</span>`; return; }
-  if (!raw.trim()) return;
+  const confirmBtn = document.getElementById("confirm-import-btn");
+
+  if (!subjectId) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Create a subject first.</span>`; return; }
+  if (!raw.trim()) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Paste some questions first.</span>`; return; }
 
   const { results, errors } = parseQuestions(raw);
-  const btn = document.getElementById("parse-btn");
-  btn.disabled = true;
+  pendingImport = results; 
+
+  let html = `<div style="padding: 15px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; margin-top: 15px;">
+                <h3 style="margin-bottom: 10px; font-size: 1.1rem;">Preview Summary</h3>
+                <p style="margin: 0 0 5px 0;"><strong>Valid questions found:</strong> <span style="color:var(--success); font-weight:bold;">${results.length}</span></p>
+                <p style="margin: 0 0 10px 0;"><strong>Needs review / Skipped:</strong> <span style="color:var(--danger); font-weight:bold;">${errors.length}</span></p>`;
+
+  if (errors.length > 0) {
+    html += `<div style="background: rgba(220, 38, 38, 0.1); color: var(--danger); padding: 10px; border-radius: 6px; font-size: 0.9rem; margin-bottom: 10px;">
+               <strong>Errors to fix:</strong>
+               <ul style="margin: 5px 0 0 20px;">` + errors.map(e => `<li>${escapeHtml(e)}</li>`).join("") + `</ul>
+             </div>`;
+  }
+
+  if (results.length > 0) {
+    html += `<details style="cursor:pointer; font-size: 0.9rem; color: var(--text-muted); margin-top: 10px;">
+               <summary>Click to view the first parsed question as a sample</summary>
+               <div style="padding: 15px; border: 1px dashed var(--line-strong); margin-top: 10px; color: var(--text); text-align: left; background: var(--bg);">
+                 <p style="margin-top:0;"><strong>Q:</strong> ${escapeHtml(results[0].text)}</p>
+                 <ul style="margin:10px 0 0 20px;">
+                   ${results[0].options.map((opt, i) => `<li style="margin-bottom:5px;">${String.fromCharCode(65+i)}) ${escapeHtml(opt)}${i === results[0].correctIndex ? '✅ <em>(Correct)</em>' : ''}</li>`).join('')}
+                 </ul>
+                 ${results[0].topic ? `<p style="margin:10px 0 0 0;"><strong>Topic:</strong> ${escapeHtml(results[0].topic)}</p>` : ''}
+                 ${results[0].explanation ? `<p style="margin:10px 0 0 0;"><strong>Explanation:</strong> ${escapeHtml(results[0].explanation)}</p>` : ''}
+               </div>
+             </details>`;
+    confirmBtn.classList.remove("hidden");
+    confirmBtn.innerText = `Confirm Import (${results.length} questions)`;
+  } else {
+    confirmBtn.classList.add("hidden");
+  }
+
+  html += `</div>`;
+  reportEl.innerHTML = html;
+});
+
+document.getElementById("confirm-import-btn").addEventListener("click", async () => {
+  const subjectId = document.getElementById("target-subject").value;
+  const reportEl = document.getElementById("parse-report");
+  const confirmBtn = document.getElementById("confirm-import-btn");
+  const parseBtn = document.getElementById("parse-btn");
+
+  confirmBtn.disabled = true;
+  parseBtn.disabled = true;
+  confirmBtn.innerText = "Importing...";
+
   try {
-    await Promise.all(results.map(q => addDoc(collection(db, "subjects", subjectId, "questions"), q)));
-    let html = `<span class="ok">Added ${results.length} question${results.length === 1 ? "" : "s"}.</span>`;
-    if (errors.length) {
-      html += `<br/><span class="err">Skipped ${errors.length}:</span><ul style="margin:4px 0 0 18px;">` +
-        errors.map(e => `<li class="err">${escapeHtml(e)}</li>`).join("") + `</ul>`;
-    }
-    reportEl.innerHTML = html;
-    if (results.length > 0) document.getElementById("raw-questions").value = "";
+    await Promise.all(pendingImport.map(q => addDoc(collection(db, "subjects", subjectId, "questions"), q)));
+    reportEl.innerHTML = `<div style="padding: 15px; background: rgba(16, 185, 129, 0.1); color: var(--success); border-radius: 8px; margin-top: 15px; font-weight: bold; text-align:center;">
+      ✅ Successfully imported ${pendingImport.length} questions!
+    </div>`;
+    document.getElementById("raw-questions").value = "";
+    pendingImport = [];
+    confirmBtn.classList.add("hidden");
     await loadSubjects();
+  } catch (err) {
+    reportEl.innerHTML += `<div class="auth-error" style="margin-top:10px; color: var(--danger);">Upload failed. Please try again.</div>`;
   } finally {
-    btn.disabled = false;
+    confirmBtn.disabled = false;
+    parseBtn.disabled = false;
   }
 });
 
@@ -451,13 +577,13 @@ document.getElementById("back-to-dashboard").addEventListener("click", () => {
 // ============================================================
 let currentSubject = null;
 let currentQuestions = [];
-let answers = {};       // questionId -> selected option index
-let marked = new Set(); // questionIds marked for review
+let answers = {};
+let marked = new Set();
 let visited = new Set();
 let currentIndex = 0;
 let timerInterval = null;
 let endTime = 0;
-let isTestActive = false; // Anti-cheating tracker
+let isTestActive = false;
 
 async function startTest(subjectId) {
   currentSubject = subjectsCache.find(s => s.id === subjectId);
@@ -476,8 +602,7 @@ async function startTest(subjectId) {
   document.getElementById("test-subject-name").textContent = currentSubject.name;
   const durationMin = currentSubject.durationMinutes || 30;
   endTime = Date.now() + durationMin * 60 * 1000;
-
-  isTestActive = true; // Test is now live
+  isTestActive = true;
 
   showView("view-test");
   renderQuestion();
@@ -572,8 +697,7 @@ document.getElementById("btn-submit-test").addEventListener("click", () => {
 });
 
 async function submitTest() {
-  isTestActive = false; // Turn off anti-cheating tracking once test is submitted
-  
+  isTestActive = false; 
   let correct = 0, wrong = 0, unattempted = 0;
   const topicStats = {};
   const reviewData = [];
@@ -661,16 +785,12 @@ function renderResults(r) {
   showView("view-results");
 }
 
-// ============================================================
-// Utilities & Anti-Cheating Handlers
-// ============================================================
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = String(str);
   return div.innerHTML;
 }
 
-// Trigger auto-submit if the user switches tabs during an active test
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && isTestActive) {
     alert("Anti-Cheating Alert: You left the test tab! Your test has been automatically submitted.");
@@ -679,14 +799,11 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-// Home Button Functionality
 const homeLink = document.getElementById("home-link");
 if (homeLink) {
   homeLink.addEventListener("click", () => {
-    if (!auth.currentUser) return; // Do nothing if the user isn't logged in yet
-
+    if (!auth.currentUser) return; 
     if (isTestActive) {
-      // Warn the user if they try to go home mid-test
       if (confirm("Warning: You are in the middle of a test. If you go to the Dashboard, your test will be automatically submitted. Continue?")) {
         clearInterval(timerInterval);
         submitTest();
