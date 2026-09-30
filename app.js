@@ -471,6 +471,61 @@ document.getElementById("save-edit-btn").addEventListener("click", async () => {
 });
 
 // ============================================================
+// DOCUMENT UPLOAD & EXTRACTION LOGIC (PDF, WORD, TXT)
+// ============================================================
+document.getElementById("file-upload").addEventListener("change", async function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const statusText = document.getElementById("upload-status");
+  const rawBox = document.getElementById("raw-questions");
+  statusText.textContent = "Extracting text... please wait.";
+  statusText.style.color = "var(--primary)";
+
+  try {
+    let extractedText = "";
+
+    // 1. Handle Text Files
+    if (file.type === "text/plain") {
+      extractedText = await file.text();
+    } 
+    // 2. Handle PDF Files
+    else if (file.type === "application/pdf") {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(" ");
+        extractedText += pageText + "\n\n";
+      }
+    } 
+    // 3. Handle Word Documents (.docx)
+    else if (file.name.endsWith(".docx")) {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+      extractedText = result.value;
+    } 
+    else {
+      throw new Error("Unsupported file format. Please upload PDF, Word (.docx), or TXT.");
+    }
+
+    // Success! Dump text into the box for parsing
+    rawBox.value = extractedText;
+    statusText.textContent = "Extraction complete! Click 'Preview Questions'.";
+    statusText.style.color = "var(--success)";
+
+  } catch (error) {
+    console.error(error);
+    statusText.textContent = "Error extracting file: " + error.message;
+    statusText.style.color = "var(--danger)";
+  }
+  
+  // Reset file input so you can upload the same file again if needed
+  event.target.value = '';
+});
+
+// ============================================================
 // INTELLIGENT RAW TEXT PARSER (State Machine Architecture)
 // ============================================================
 function parseQuestions(rawText) {
@@ -634,20 +689,22 @@ document.getElementById("parse-btn").addEventListener("click", () => {
   const confirmBtn = document.getElementById("confirm-import-btn");
 
   if (!subjectId) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Create a test container first.</span>`; return; }
-  if (!raw.trim()) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Paste some questions first.</span>`; return; }
+  if (!raw.trim()) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Paste or upload some questions first.</span>`; return; }
 
   const { results, errors } = parseQuestions(raw);
   pendingImport = results; 
 
+  // FIXED BUG: Using a safe array join instead of nested backticks
   let html = `<div style="padding: 15px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; margin-top: 15px;">
                 <h3 style="margin-bottom: 10px; font-size: 1.1rem;">Preview Summary</h3>
                 <p style="margin: 0 0 5px 0;"><strong>Valid questions found:</strong> <span style="color:var(--success); font-weight:bold;">${results.length}</span></p>
                 <p style="margin: 0 0 10px 0;"><strong>Needs review / Skipped:</strong> <span style="color:var(--danger); font-weight:bold;">${errors.length}</span></p>`;
 
   if (errors.length > 0) {
+    let errorList = errors.map(e => `<li>${escapeHtml(e)}</li>`).join("");
     html += `<div style="background: rgba(220, 38, 38, 0.1); color: var(--danger); padding: 10px; border-radius: 6px; font-size: 0.9rem; margin-bottom: 10px;">
                <strong>Errors to fix:</strong>
-               <ul style="margin: 5px 0 0 20px;">` + errors.map(e => `<li>${escapeHtml(e)}</li>`).join("") + `</ul>
+               <ul style="margin: 5px 0 0 20px;">${errorList}</ul>
              </div>`;
   }
 
@@ -698,6 +755,7 @@ document.getElementById("confirm-import-btn").addEventListener("click", async ()
       ✅ Successfully imported ${pendingImport.length} questions!
     </div>`;
     document.getElementById("raw-questions").value = "";
+    document.getElementById("upload-status").textContent = ""; // Clear file upload text
     pendingImport = [];
     confirmBtn.classList.add("hidden");
     await loadSubjects();
