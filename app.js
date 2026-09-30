@@ -340,7 +340,7 @@ function renderTestList() {
       row.innerHTML = `
         <div class="test-row-info">
           <h3>${escapeHtml(t.testName)}</h3>
-          <div class="test-row-meta">${t.questionCount \vert{}\vert{} 0} questions · ${t.durationMinutes || 30} min</div>
+          <div class="test-row-meta">${t.questionCount || 0} questions · ${t.durationMinutes || 30} min</div>
         </div>
         <div style="display: flex; align-items: center;">
           <button class="btn btn-primary btn-sm start-btn" ${hasQuestions ? "" : "disabled"} data-subject-id="${t.id}">
