@@ -47,12 +47,9 @@
             <label for="auth-password">Password</label>
             <input id="auth-password" type="password" autocomplete="current-password" required minlength="6" />
           </div>
-          
-          <!-- Forgot Password Button Added Here -->
           <div style="text-align: right; margin-top: -4px; margin-bottom: 16px;">
             <button type="button" id="forgot-pwd-btn" style="background: none; border: none; color: var(--primary); cursor: pointer; font-size: 0.9rem; padding: 0;">Forgot password?</button>
           </div>
-
           <button type="submit" class="btn btn-primary" style="width:100%" id="auth-submit">Log in</button>
         </form>
         <div class="auth-switch">
@@ -81,7 +78,6 @@
   <section id="view-app" class="hidden">
     <div class="topbar">
       <div class="brand">
-        <!-- Home Link Modification Added Here -->
         <span class="brand-mark" id="home-link" style="cursor: pointer;">TEST SERIES</span>
       </div>
       <div class="topbar-actions">
@@ -124,8 +120,9 @@
                 <label for="target-subject">Add questions to</label>
                 <select id="target-subject" style="width:100%;padding:9px 10px;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-sm);"></select>
               </div>
-              <textarea id="raw-questions" placeholder="Paste raw questions here, e.g.:
+              <textarea id="raw-questions" placeholder="Paste any reasonably structured MCQ text. Blank lines and extra metadata are fine.
 
+Example:
 1. What is the powerhouse of the cell?
 A) Nucleus
 B) Mitochondria
@@ -133,21 +130,25 @@ C) Ribosome
 D) Golgi apparatus
 Answer: B
 Topic: Cell Biology"></textarea>
-              <div style="margin-top:10px;"><button class="btn btn-primary btn-sm" id="parse-btn">Parse &amp; add questions</button></div>
-              <div class="parse-report" id="parse-report"></div>
+              
+              <!-- Updated Buttons for New Parsing Workflow -->
+              <div style="margin-top:10px; display:flex; gap:10px; align-items: center;">
+                <button class="btn btn-primary btn-sm" id="parse-btn">Preview Questions</button>
+                <button class="btn btn-sm hidden" id="confirm-import-btn" style="background-color: var(--success); color: white; border: none;">Confirm Import</button>
+              </div>
+              <div class="parse-report" id="parse-report" style="margin-top: 15px;"></div>
+
             </div>
             <div class="admin-help">
-              <p><strong>Format each question like this</strong> (blank line between questions):</p>
-              <p><code>1. Question text?</code><br/>
-              <code>A) first option</code><br/>
-              <code>B) second option</code><br/>
-              <code>C) third option</code><br/>
-              <code>D) fourth option</code><br/>
-              <code>Answer: B</code></p>
-              <p>Optional extra lines per question:<br/>
-              <code>Topic: some topic name</code> — used for the strong/weak breakdown after a test.<br/>
-              <code>Explanation: why B is correct</code> — shown on the results page.</p>
-              <p>The parser is fairly tolerant of "1)" vs "1.", "A." vs "A)", and "Correct answer:" vs "Answer:" — but if a block can't be understood it will be skipped and listed, so nothing gets added silently wrong.</p>
+              <p><strong>The Intelligent Importer is active.</strong></p>
+              <p>You can paste questions from NotebookLM, ChatGPT, PDFs, or Word. The parser will automatically handle extra blank lines, different numbering formats, and ignore unsupported metadata.</p>
+              <p><strong>Requirements:</strong></p>
+              <ul style="margin-top: 5px; margin-bottom: 15px; padding-left: 20px;">
+                <li>The question text.</li>
+                <li>Options labelled clearly (e.g., A), A., (A), etc).</li>
+                <li>The correct answer (e.g., Answer: B, Correct: B).</li>
+              </ul>
+              <p>Optional metadata like <code>Topic:</code> or <code>Explanation:</code> will be saved. Unknown tags like <code>Source:</code> will be safely ignored without breaking the question.</p>
             </div>
           </div>
         </details>
