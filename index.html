@@ -47,6 +47,12 @@
             <label for="auth-password">Password</label>
             <input id="auth-password" type="password" autocomplete="current-password" required minlength="6" />
           </div>
+          
+          <!-- Forgot Password Button Added Here -->
+          <div style="text-align: right; margin-top: -4px; margin-bottom: 16px;">
+            <button type="button" id="forgot-pwd-btn" style="background: none; border: none; color: var(--primary); cursor: pointer; font-size: 0.9rem; padding: 0;">Forgot password?</button>
+          </div>
+
           <button type="submit" class="btn btn-primary" style="width:100%" id="auth-submit">Log in</button>
         </form>
         <div class="auth-switch">
@@ -75,7 +81,8 @@
   <section id="view-app" class="hidden">
     <div class="topbar">
       <div class="brand">
-        <span class="brand-mark">TEST SERIES</span>
+        <!-- Home Link Modification Added Here -->
+        <span class="brand-mark" id="home-link" style="cursor: pointer;">TEST SERIES</span>
       </div>
       <div class="topbar-actions">
         <button class="icon-btn" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">◐</button>
