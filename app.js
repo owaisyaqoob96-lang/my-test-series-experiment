@@ -9,9 +9,10 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
 
 const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
+// UPDATED: Added updateDoc to imports
 import {
   getFirestore, collection, addDoc, getDocs, getCountFromServer,
-  serverTimestamp, deleteDoc, doc
+  serverTimestamp, deleteDoc, doc, updateDoc
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -100,7 +101,7 @@ function friendlyAuthError(err) {
   return "Something went wrong. Please try again.";
 }
 
-const DISPOSABLE_DOMAINS = new Set(["mailinator.com","guerrillamail.com","tempmail.com","yopmail.com"]); // Truncated for brevity but remains effective
+const DISPOSABLE_DOMAINS = new Set(["mailinator.com","guerrillamail.com","tempmail.com","yopmail.com"]); 
 let pendingNotice = null;
 
 function showAuthNotice(ok, text) {
@@ -193,7 +194,15 @@ document.getElementById("verify-resend-btn").addEventListener("click", async () 
 function routeUser(user) {
   if (user && user.emailVerified) {
     document.getElementById("whoami").textContent = user.email;
-    document.querySelector(".admin-panel").classList.toggle("hidden", user.uid !== ADMIN_UID);
+    
+    // Show admin panel if admin
+    const isAdmin = user.uid === ADMIN_UID;
+    const adminTile = document.getElementById("admin-dashboard-tile");
+    if(adminTile) {
+      if(isAdmin) adminTile.classList.remove("hidden");
+      else adminTile.classList.add("hidden");
+    }
+
     showView("view-app");
     loadSubjects();
   } else if (user && !user.emailVerified) {
@@ -226,17 +235,35 @@ onAuthStateChanged(auth, async () => {
   routeUser(auth.currentUser);
 });
 
+
 // ============================================================
-// Dashboard: subjects list + admin panel
+// Dashboard: Folders, Tests & Admin Panel
 // ============================================================
 let subjectsCache = [];
+let navSubject = null; // Tracks current Folder Level 1
+let navType = null;    // Tracks current Folder Level 2
+
+const folderIconSvg = `<svg class="folder-icon" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
 
 async function loadSubjects() {
   const listEl = document.getElementById("test-list");
-  listEl.innerHTML = `<div class="test-row-empty">Loading…</div>`;
+  if(listEl) listEl.innerHTML = `<div class="test-row-empty">Loading…</div>`;
+  
   const snap = await getDocs(collection(db, "subjects"));
   subjectsCache = [];
-  snap.forEach(d => subjectsCache.push({ id: d.id, ...d.data() }));
+  
+  snap.forEach(d => {
+    const data = d.data();
+    // Backwards compatibility for your old tests that only had a 'name'
+    subjectsCache.push({
+      id: d.id,
+      subject: data.subject || "General / Uncategorized",
+      type: data.type || "Miscellaneous",
+      testName: data.testName || data.name || "Untitled Test",
+      durationMinutes: data.durationMinutes || 30,
+      ...data
+    });
+  });
 
   for (const s of subjectsCache) {
     try {
@@ -246,92 +273,229 @@ async function loadSubjects() {
       s.questionCount = 0;
     }
   }
+  
   renderTestList();
   renderSubjectSelect();
 }
 
+// Global functions for inline HTML onclick handlers
+window.goHomeFolder = function() { navSubject = null; navType = null; renderTestList(); };
+window.goSubjectFolder = function() { navType = null; renderTestList(); };
+window.openSubject = function(sub) { navSubject = sub; renderTestList(); };
+window.openType = function(typ) { navType = typ; renderTestList(); };
+
 function renderTestList() {
   const listEl = document.getElementById("test-list");
-  if (subjectsCache.length === 0) {
-    listEl.innerHTML = `<div class="test-row-empty">No subjects yet — add one below to get your first test running.</div>`;
-    return;
-  }
+  const breadcrumb = document.getElementById("dashboard-breadcrumb");
   listEl.innerHTML = "";
   
   const isAdmin = auth.currentUser && auth.currentUser.uid === ADMIN_UID;
 
-  subjectsCache.forEach(s => {
-    const row = document.createElement("div");
-    row.className = "test-row";
-    const hasQuestions = (s.questionCount || 0) > 0;
-    const deleteBtn = isAdmin ? `<button class="btn btn-sm" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${s.id}">Delete</button>` : "";
-
-    row.innerHTML = `
-      <div class="test-row-info">
-        <h3>${escapeHtml(s.name)}</h3>
-        <div class="test-row-meta">${s.questionCount || 0} questions · ${s.durationMinutes || 30} min</div>
-      </div>
-      <div style="display: flex; align-items: center;">
-        <button class="btn btn-primary btn-sm" ${hasQuestions ? "" : "disabled"} data-subject-id="${s.id}">
-          ${hasQuestions ? "Start test" : "No questions yet"}
-        </button>
-        ${deleteBtn}
-      </div>
-    `;
-    listEl.appendChild(row);
-  });
-
-  listEl.querySelectorAll("button[data-subject-id]").forEach(btn => {
-    btn.addEventListener("click", () => startTest(btn.getAttribute("data-subject-id")));
-  });
-
-  if (isAdmin) {
-    listEl.querySelectorAll("button[data-delete-id]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        if (confirm("Are you sure you want to delete this test? This cannot be undone.")) {
-          btn.disabled = true;
-          btn.textContent = "...";
-          try {
-            await deleteDoc(doc(db, "subjects", btn.getAttribute("data-delete-id")));
-            await loadSubjects();
-          } catch (e) {
-            console.error(e);
-            alert("Couldn't delete. Please try again.");
-            btn.disabled = false;
-            btn.textContent = "Delete";
-          }
-        }
-      });
+  // Level 1: Show Subjects
+  if (!navSubject) {
+    breadcrumb.innerHTML = `📁 All Exams`;
+    const uniqueSubjects = [...new Set(subjectsCache.map(s => s.subject))];
+    
+    if (uniqueSubjects.length === 0) {
+      listEl.innerHTML = `<div class="test-row-empty">No tests created yet.</div>`;
+      return;
+    }
+    
+    uniqueSubjects.forEach(sub => {
+      const el = document.createElement("div");
+      el.className = "folder-card";
+      el.onclick = () => openSubject(sub);
+      el.innerHTML = `${folderIconSvg}<h3 style="margin:0;">${escapeHtml(sub)}</h3>`;
+      listEl.appendChild(el);
     });
+  } 
+  // Level 2: Show Categories (Sectional, Full)
+  else if (!navType) {
+    breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span> > ${escapeHtml(navSubject)}`;
+    const uniqueTypes = [...new Set(subjectsCache.filter(s => s.subject === navSubject).map(s => s.type))];
+    
+    uniqueTypes.forEach(typ => {
+      const el = document.createElement("div");
+      el.className = "folder-card";
+      el.onclick = () => openType(typ);
+      el.innerHTML = `${folderIconSvg}<h3 style="margin:0;">${escapeHtml(typ)}</h3>`;
+      listEl.appendChild(el);
+    });
+  } 
+  // Level 3: Show Specific Tests
+  else {
+    breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span> > <span class="breadcrumb-link" onclick="goSubjectFolder()">${escapeHtml(navSubject)}</span> >${escapeHtml(navType)}`;
+    
+    const tests = subjectsCache.filter(s => s.subject === navSubject && s.type === navType);
+    
+    if (tests.length === 0) {
+      listEl.innerHTML = `<div class="test-row-empty">No tests found in this folder.</div>`;
+      return;
+    }
+
+    tests.forEach(t => {
+      const row = document.createElement("div");
+      row.className = "test-row";
+      row.style.gridColumn = "1 / -1"; // Make tests span full width like before
+      
+      const hasQuestions = (t.questionCount || 0) > 0;
+      
+      // Admin Buttons
+      const editBtn = isAdmin ? `<button class="btn btn-sm edit-btn" style="background-color: var(--primary); color: white; margin-left: 8px; border: none;" data-edit-id="${t.id}">Edit</button>` : "";
+      const deleteBtn = isAdmin ? `<button class="btn btn-sm delete-btn" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${t.id}">Delete</button>` : "";
+
+      row.innerHTML = `
+        <div class="test-row-info">
+          <h3>${escapeHtml(t.testName)}</h3>
+          <div class="test-row-meta">${t.questionCount \vert{}\vert{} 0} questions · ${t.durationMinutes || 30} min</div>
+        </div>
+        <div style="display: flex; align-items: center;">
+          <button class="btn btn-primary btn-sm start-btn" ${hasQuestions ? "" : "disabled"} data-subject-id="${t.id}">
+            ${hasQuestions ? "Start test" : "No questions yet"}
+          </button>
+          ${editBtn}${deleteBtn}
+        </div>
+      `;
+      listEl.appendChild(row);
+    });
+
+    // Attach Start Event
+    listEl.querySelectorAll(".start-btn").forEach(btn => {
+      btn.addEventListener("click", () => startTest(btn.getAttribute("data-subject-id")));
+    });
+
+    // Attach Admin Events
+    if (isAdmin) {
+      listEl.querySelectorAll(".delete-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          if (confirm("Are you sure you want to delete this test? This cannot be undone.")) {
+            btn.disabled = true; btn.textContent = "...";
+            try {
+              await deleteDoc(doc(db, "subjects", btn.getAttribute("data-delete-id")));
+              await loadSubjects();
+            } catch (e) { alert("Couldn't delete. Please try again."); btn.disabled = false; btn.textContent = "Delete"; }
+          }
+        });
+      });
+      
+      listEl.querySelectorAll(".edit-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          openEditModal(btn.getAttribute("data-edit-id"));
+        });
+      });
+    }
   }
 }
 
 function renderSubjectSelect() {
   const select = document.getElementById("target-subject");
-  select.innerHTML = subjectsCache.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("");
+  if(select) {
+    // Show the full path in the dropdown so admin knows exactly where questions are going
+    select.innerHTML = subjectsCache.map(s => 
+      `<option value="${s.id}">${escapeHtml(s.subject)} > ${escapeHtml(s.type)} >${escapeHtml(s.testName)}</option>`
+    ).join("");
+  }
 }
 
+// ---------------- ADMIN: Create Test Container ----------------
 document.getElementById("create-subject-btn").addEventListener("click", async () => {
-  const name = document.getElementById("new-subject-name").value.trim();
-  const duration = parseInt(document.getElementById("new-subject-duration").value, 10) || 30;
-  if (!name) return;
+  const subjectInput = document.getElementById("new-subject").value.trim() || "General";
+  const typeInput = document.getElementById("new-type").value || "Miscellaneous";
+  const testNameInput = document.getElementById("new-test-name").value.trim() || "Untitled Test";
+  const durationInput = parseInt(document.getElementById("new-duration").value, 10) || 30;
+
   const btn = document.getElementById("create-subject-btn");
   btn.disabled = true;
+  btn.textContent = "Creating...";
+
   try {
-    await addDoc(collection(db, "subjects"), { name, durationMinutes: duration, createdAt: serverTimestamp() });
-    document.getElementById("new-subject-name").value = "";
+    await addDoc(collection(db, "subjects"), { 
+      subject: subjectInput,
+      type: typeInput,
+      testName: testNameInput,
+      durationMinutes: durationInput, 
+      createdAt: serverTimestamp() 
+    });
+    
+    // Clear inputs
+    document.getElementById("new-subject").value = "";
+    document.getElementById("new-test-name").value = "";
+    document.getElementById("new-duration").value = "";
+    
+    // Navigate to the newly created folder location to see it
+    navSubject = subjectInput;
+    navType = typeInput;
     await loadSubjects();
   } finally {
     btn.disabled = false;
+    btn.textContent = "Create Test Container";
   }
 });
+
+
+// ---------------- ADMIN: Edit Modal Logic ----------------
+const editModal = document.getElementById("edit-test-modal");
+
+function openEditModal(testId) {
+  const test = subjectsCache.find(s => s.id === testId);
+  if(!test) return;
+  
+  document.getElementById("edit-test-id").value = test.id;
+  document.getElementById("edit-subject").value = test.subject || "";
+  document.getElementById("edit-type").value = test.type || "Miscellaneous";
+  document.getElementById("edit-test-name").value = test.testName || "";
+  document.getElementById("edit-duration").value = test.durationMinutes || 30;
+  
+  editModal.classList.remove("hidden");
+}
+
+document.getElementById("cancel-edit-btn").addEventListener("click", () => {
+  editModal.classList.add("hidden");
+});
+
+document.getElementById("save-edit-btn").addEventListener("click", async () => {
+  const id = document.getElementById("edit-test-id").value;
+  const newSubject = document.getElementById("edit-subject").value.trim() || "General";
+  const newType = document.getElementById("edit-type").value || "Miscellaneous";
+  const newTestName = document.getElementById("edit-test-name").value.trim() || "Untitled Test";
+  const newDuration = parseInt(document.getElementById("edit-duration").value, 10) || 30;
+  
+  const btn = document.getElementById("save-edit-btn");
+  btn.disabled = true;
+  btn.textContent = "Saving...";
+  
+  try {
+    await updateDoc(doc(db, "subjects", id), {
+      subject: newSubject,
+      type: newType,
+      testName: newTestName,
+      name: newTestName, // Keep 'name' synced just in case old code looks for it
+      durationMinutes: newDuration
+    });
+    
+    editModal.classList.add("hidden");
+    await loadSubjects();
+  } catch(e) {
+    alert("Error updating test: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save Changes";
+  }
+});
+
 
 // ============================================================
 // INTELLIGENT RAW TEXT PARSER (State Machine Architecture)
 // ============================================================
 function parseQuestions(rawText) {
-  // Normalize line endings and prevent blank-line failures
-  const lines = rawText.replace(/\r\n/g, '\n').split('\n');
+  
+  let cleanRaw = rawText
+    .replace(/\*\*/g, '')           
+    .replace(/###\s*/g, '')         
+    .replace(/^\s*\*\s+/gm, '')     
+    .replace(/`/g, '');             
+
+  const lines = cleanRaw.replace(/\r\n/g, '\n').split('\n');
   const results = [];
   const errors = [];
   let currentQ = null;
@@ -343,7 +507,6 @@ function parseQuestions(rawText) {
     if (currentQ.explanation) currentQ.explanation = currentQ.explanation.trim();
     if (currentQ.topic) currentQ.topic = currentQ.topic.trim();
 
-    // Validations
     if (!currentQ.text) {
        errors.push(`A block was skipped because it lacked recognizable question text.`);
     } else if (currentQ.options.length < 2) {
@@ -351,7 +514,6 @@ function parseQuestions(rawText) {
     } else if (currentQ.correctIndex === null) {
        errors.push(`Question "${currentQ.text.substring(0, 30)}...": Skipped because no valid answer was found.`);
     } else {
-       // Package for Firestore
        const qToSave = {
          text: currentQ.text,
          options: currentQ.options.map(o => o.trim()),
@@ -366,8 +528,7 @@ function parseQuestions(rawText) {
   }
 
   function startNewQuestion(firstLine) {
-    finalizeQuestion(); // Package the previous question before starting this one
-    // Remove leading numbering like 1. Q1) Question 1: (1) etc.
+    finalizeQuestion(); 
     const cleanText = firstLine.replace(/^(?:q(?:ue(?:stion)?)?\.?\s*(?:no\.?)?\s*\d+|(?:\(\d+\))|\d+[\.\)\-:])\s*/i, "");
     currentQ = {
       text: cleanText,
@@ -375,26 +536,23 @@ function parseQuestions(rawText) {
       correctIndex: null,
       topic: null,
       explanation: null,
-      state: 'QUESTION' // Tracks where we are inside the question structure
+      state: 'QUESTION'
     };
   }
 
-  // Highly robust Regex matchers that ignore strict spacing
   const optionRegex = /^(?:[*\-\+]\s*)?(?:([A-Da-d])[\.\:\-\)]|(?:\(([A-Da-d])\)))\s+(.+)$/i;
   const ansRegexLetter = /^(?:correct\s*)?(?:answer|ans|key|correct option|correct)[\.\:\=\-]?\s*\(?([A-Da-d])\)?(?:\s|$)/i;
   const ansRegexText = /^(?:correct\s*)?(?:answer|ans|key|correct option|correct)[\.\:\=\-]?\s*(.+)$/i;
   const topicRegex = /^topic\s*[\.\:\=\-]\s*(.+)$/i;
   const expRegex = /^explanation\s*[\.\:\=\-]\s*(.+)$/i;
   const metaRegex = /^(?:source|reference|difficulty|level|chapter|category|tags|notes|bloom's taxonomy)\s*[\.\:\=\-]\s*(.+)$/i;
-  const newQMarkerRegex = /^(?:q(?:ue(?:stion)?)?\.?\s*(?:no\.?)?\s*\d+|(?:\(\d+\))|\d+[\.\)\-:])\s+/i;
+  const newQMarkerRegex = /^(?:q(?:ue(?:stion)?)?\.?\s*(?:no\.?)?\s*\d+|(?:\(\d+\))|\d+[\.\)\-:])(?:\s+|$)/i;
 
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i].trim();
-    if (!line) continue; // Blank lines are simply skipped and do not break the question
+    if (!line) continue;
 
-    // 1. Is this a forced new question marker? (e.g. "2. What is...")
     if (newQMarkerRegex.test(line)) {
-        // Prevent breaking if a multiline question accidentally starts with a number.
         if (!currentQ || currentQ.options.length > 0 || currentQ.correctIndex !== null) {
             startNewQuestion(line);
             continue;
@@ -406,7 +564,6 @@ function parseQuestions(rawText) {
         continue;
     }
 
-    // 2. Check line against structure matchers
     const optMatch = line.match(optionRegex);
     const ansLetterMatch = line.match(ansRegexLetter);
     const ansTextMatch = !ansLetterMatch ? line.match(ansRegexText) : null;
@@ -415,35 +572,28 @@ function parseQuestions(rawText) {
     const metaMatch = line.match(metaRegex);
     const isRecognizedTag = optMatch || ansLetterMatch || ansTextMatch || topicMatch || expMatch || metaMatch;
 
-    // 3. Structural Boundary Detection (Unnumbered questions)
-    // If we already have the answer, and this new line isn't an explanation or metadata,
-    // it's highly likely the start of the next unnumbered question.
     if (currentQ.correctIndex !== null && !isRecognizedTag && currentQ.state !== 'EXPLANATION') {
         startNewQuestion(line);
         continue;
     }
 
-    // 4. Handle Explanations
     if (expMatch) {
         currentQ.explanation = expMatch[1];
         currentQ.state = 'EXPLANATION';
         continue;
     }
 
-    // 5. Handle Topic
     if (topicMatch) {
         currentQ.topic = topicMatch[1];
         currentQ.state = 'METADATA';
         continue;
     }
 
-    // 6. Ignore unsupported metadata without breaking
     if (metaMatch) {
         currentQ.state = 'METADATA';
         continue;
     }
 
-    // 7. Handle Correct Answer (If standard letter A,B,C,D)
     if (ansLetterMatch) {
         const letter = ansLetterMatch[1].toUpperCase();
         currentQ.correctIndex = letter.charCodeAt(0) - 65;
@@ -451,7 +601,6 @@ function parseQuestions(rawText) {
         continue;
     }
 
-    // 8. Handle Correct Answer (If it's text like "Answer: The Mitochondria")
     if (ansTextMatch && currentQ.correctIndex === null) {
         const textAns = ansTextMatch[1].trim().toLowerCase();
         let found = -1;
@@ -466,16 +615,14 @@ function parseQuestions(rawText) {
         continue;
     }
 
-    // 9. Handle Options
     if (optMatch && currentQ.state !== 'METADATA' && currentQ.state !== 'EXPLANATION') {
-        currentQ.options.push(optMatch[3]); // Extracts just the option text
+        currentQ.options.push(optMatch[3]); 
         currentQ.state = 'OPTIONS';
         continue;
     }
 
-    // 10. State Continuations (Handling multi-line text)
     if (currentQ.state === 'QUESTION') {
-        currentQ.text += "\n" + line;
+        currentQ.text += (currentQ.text ? "\n" : "") + line;
     } else if (currentQ.state === 'OPTIONS') {
          if (currentQ.options.length > 0) {
              currentQ.options[currentQ.options.length - 1] += "\n" + line;
@@ -500,7 +647,7 @@ document.getElementById("parse-btn").addEventListener("click", () => {
   const reportEl = document.getElementById("parse-report");
   const confirmBtn = document.getElementById("confirm-import-btn");
 
-  if (!subjectId) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Create a subject first.</span>`; return; }
+  if (!subjectId) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Create a test container first.</span>`; return; }
   if (!raw.trim()) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Paste some questions first.</span>`; return; }
 
   const { results, errors } = parseQuestions(raw);
@@ -599,7 +746,8 @@ async function startTest(subjectId) {
   visited = new Set();
   currentIndex = 0;
 
-  document.getElementById("test-subject-name").textContent = currentSubject.name;
+  // Use the new structured name format for the title bar
+  document.getElementById("test-subject-name").textContent = `${currentSubject.subject} - ${currentSubject.testName}`;
   const durationMin = currentSubject.durationMinutes || 30;
   endTime = Date.now() + durationMin * 60 * 1000;
   isTestActive = true;
@@ -725,7 +873,7 @@ async function submitTest() {
       uid: auth.currentUser.uid,
       userEmail: auth.currentUser.email,
       subjectId: currentSubject.id,
-      subjectName: currentSubject.name,
+      subjectName: currentSubject.testName || currentSubject.name,
       correct, wrong, unattempted, total,
       topicStats,
       submittedAt: serverTimestamp()
@@ -741,7 +889,7 @@ async function submitTest() {
 // Results
 // ============================================================
 function renderResults(r) {
-  document.getElementById("results-subject-name").textContent = currentSubject.name;
+  document.getElementById("results-subject-name").textContent = currentSubject.testName || currentSubject.name;
   const pct = r.total > 0 ? Math.round((r.correct / r.total) * 100) : 0;
   document.getElementById("results-meta").textContent = `${r.correct} of ${r.total} correct`;
 
