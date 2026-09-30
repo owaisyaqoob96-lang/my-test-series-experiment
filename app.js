@@ -9,7 +9,6 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
 
 const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
-// UPDATED: Added updateDoc to imports
 import {
   getFirestore, collection, addDoc, getDocs, getCountFromServer,
   serverTimestamp, deleteDoc, doc, updateDoc
@@ -240,8 +239,8 @@ onAuthStateChanged(auth, async () => {
 // Dashboard: Folders, Tests & Admin Panel
 // ============================================================
 let subjectsCache = [];
-let navSubject = null; // Tracks current Folder Level 1
-let navType = null;    // Tracks current Folder Level 2
+let navSubject = null; 
+let navType = null;    
 
 const folderIconSvg = `<svg class="folder-icon" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
 
@@ -254,7 +253,6 @@ async function loadSubjects() {
   
   snap.forEach(d => {
     const data = d.data();
-    // Backwards compatibility for your old tests that only had a 'name'
     subjectsCache.push({
       id: d.id,
       subject: data.subject || "General / Uncategorized",
@@ -278,7 +276,6 @@ async function loadSubjects() {
   renderSubjectSelect();
 }
 
-// Global functions for inline HTML onclick handlers
 window.goHomeFolder = function() { navSubject = null; navType = null; renderTestList(); };
 window.goSubjectFolder = function() { navType = null; renderTestList(); };
 window.openSubject = function(sub) { navSubject = sub; renderTestList(); };
@@ -291,7 +288,6 @@ function renderTestList() {
   
   const isAdmin = auth.currentUser && auth.currentUser.uid === ADMIN_UID;
 
-  // Level 1: Show Subjects
   if (!navSubject) {
     breadcrumb.innerHTML = `📁 All Exams`;
     const uniqueSubjects = [...new Set(subjectsCache.map(s => s.subject))];
@@ -309,7 +305,6 @@ function renderTestList() {
       listEl.appendChild(el);
     });
   } 
-  // Level 2: Show Categories (Sectional, Full)
   else if (!navType) {
     breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span> > ${escapeHtml(navSubject)}`;
     const uniqueTypes = [...new Set(subjectsCache.filter(s => s.subject === navSubject).map(s => s.type))];
@@ -322,7 +317,6 @@ function renderTestList() {
       listEl.appendChild(el);
     });
   } 
-  // Level 3: Show Specific Tests
   else {
     breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span> > <span class="breadcrumb-link" onclick="goSubjectFolder()">${escapeHtml(navSubject)}</span> >${escapeHtml(navType)}`;
     
@@ -336,11 +330,10 @@ function renderTestList() {
     tests.forEach(t => {
       const row = document.createElement("div");
       row.className = "test-row";
-      row.style.gridColumn = "1 / -1"; // Make tests span full width like before
+      row.style.gridColumn = "1 / -1"; 
       
       const hasQuestions = (t.questionCount || 0) > 0;
       
-      // Admin Buttons
       const editBtn = isAdmin ? `<button class="btn btn-sm edit-btn" style="background-color: var(--primary); color: white; margin-left: 8px; border: none;" data-edit-id="${t.id}">Edit</button>` : "";
       const deleteBtn = isAdmin ? `<button class="btn btn-sm delete-btn" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${t.id}">Delete</button>` : "";
 
@@ -359,12 +352,10 @@ function renderTestList() {
       listEl.appendChild(row);
     });
 
-    // Attach Start Event
     listEl.querySelectorAll(".start-btn").forEach(btn => {
       btn.addEventListener("click", () => startTest(btn.getAttribute("data-subject-id")));
     });
 
-    // Attach Admin Events
     if (isAdmin) {
       listEl.querySelectorAll(".delete-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
@@ -390,7 +381,6 @@ function renderTestList() {
 function renderSubjectSelect() {
   const select = document.getElementById("target-subject");
   if(select) {
-    // Show the full path in the dropdown so admin knows exactly where questions are going
     select.innerHTML = subjectsCache.map(s => 
       `<option value="${s.id}">${escapeHtml(s.subject)} > ${escapeHtml(s.type)} >${escapeHtml(s.testName)}</option>`
     ).join("");
@@ -417,12 +407,10 @@ document.getElementById("create-subject-btn").addEventListener("click", async ()
       createdAt: serverTimestamp() 
     });
     
-    // Clear inputs
     document.getElementById("new-subject").value = "";
     document.getElementById("new-test-name").value = "";
     document.getElementById("new-duration").value = "";
     
-    // Navigate to the newly created folder location to see it
     navSubject = subjectInput;
     navType = typeInput;
     await loadSubjects();
@@ -431,7 +419,6 @@ document.getElementById("create-subject-btn").addEventListener("click", async ()
     btn.textContent = "Create Test Container";
   }
 });
-
 
 // ---------------- ADMIN: Edit Modal Logic ----------------
 const editModal = document.getElementById("edit-test-modal");
@@ -469,7 +456,7 @@ document.getElementById("save-edit-btn").addEventListener("click", async () => {
       subject: newSubject,
       type: newType,
       testName: newTestName,
-      name: newTestName, // Keep 'name' synced just in case old code looks for it
+      name: newTestName, 
       durationMinutes: newDuration
     });
     
@@ -482,7 +469,6 @@ document.getElementById("save-edit-btn").addEventListener("click", async () => {
     btn.textContent = "Save Changes";
   }
 });
-
 
 // ============================================================
 // INTELLIGENT RAW TEXT PARSER (State Machine Architecture)
@@ -666,17 +652,26 @@ document.getElementById("parse-btn").addEventListener("click", () => {
   }
 
   if (results.length > 0) {
+    let optionsHtml = results[0].options.map((opt, i) => {
+        let isCorrect = (i === results[0].correctIndex) ? '✅ <em>(Correct)</em>' : '';
+        return `<li style="margin-bottom:5px;">${String.fromCharCode(65+i)}) ${escapeHtml(opt)} ${isCorrect}</li>`;
+    }).join('');
+
+    let topicHtml = results[0].topic ? `<p style="margin:10px 0 0 0;"><strong>Topic:</strong> ${escapeHtml(results[0].topic)}</p>` : '';
+    let expHtml = results[0].explanation ? `<p style="margin:10px 0 0 0;"><strong>Explanation:</strong> ${escapeHtml(results[0].explanation)}</p>` : '';
+
     html += `<details style="cursor:pointer; font-size: 0.9rem; color: var(--text-muted); margin-top: 10px;">
                <summary>Click to view the first parsed question as a sample</summary>
                <div style="padding: 15px; border: 1px dashed var(--line-strong); margin-top: 10px; color: var(--text); text-align: left; background: var(--bg);">
                  <p style="margin-top:0;"><strong>Q:</strong> ${escapeHtml(results[0].text)}</p>
                  <ul style="margin:10px 0 0 20px;">
-                   ${results[0].options.map((opt, i) => `<li style="margin-bottom:5px;">${String.fromCharCode(65+i)}) ${escapeHtml(opt)}${i === results[0].correctIndex ? '✅ <em>(Correct)</em>' : ''}</li>`).join('')}
+                   ${optionsHtml}
                  </ul>
-                 ${results[0].topic ? `<p style="margin:10px 0 0 0;"><strong>Topic:</strong> ${escapeHtml(results[0].topic)}</p>` : ''}
-                 ${results[0].explanation ? `<p style="margin:10px 0 0 0;"><strong>Explanation:</strong> ${escapeHtml(results[0].explanation)}</p>` : ''}
+                 ${topicHtml}
+                 ${expHtml}
                </div>
              </details>`;
+             
     confirmBtn.classList.remove("hidden");
     confirmBtn.innerText = `Confirm Import (${results.length} questions)`;
   } else {
@@ -746,7 +741,6 @@ async function startTest(subjectId) {
   visited = new Set();
   currentIndex = 0;
 
-  // Use the new structured name format for the title bar
   document.getElementById("test-subject-name").textContent = `${currentSubject.subject} - ${currentSubject.testName}`;
   const durationMin = currentSubject.durationMinutes || 30;
   endTime = Date.now() + durationMin * 60 * 1000;
@@ -918,18 +912,23 @@ function renderResults(r) {
   }
 
   const reviewEl = document.getElementById("review-list");
-  reviewEl.innerHTML = r.reviewData.map(q => {
+  let reviewHtmlList = r.reviewData.map(q => {
     const cls = !q.isAnswered ? "skipped" : (q.isCorrect ? "right" : "wrong");
     const yourAnswer = q.isAnswered ? q.options[q.selected] : "Not attempted";
+    
+    let correctString = !q.isCorrect ? `<div class="review-answer correct-text">Correct answer: ${escapeHtml(q.options[q.correctIndex])}</div>` : "";
+    let expString = q.explanation ? `<div class="review-answer" style="color:var(--text-muted);">${escapeHtml(q.explanation)}</div>` : "";
+
     return `
       <div class="review-item ${cls}">
         <div>${escapeHtml(q.text)}</div>
         <div class="review-answer ${q.isAnswered ? (q.isCorrect ? "correct-text" : "wrong-text") : ""}">Your answer: ${escapeHtml(yourAnswer)}</div>
-        ${!q.isCorrect ? `<div class="review-answer correct-text">Correct answer: ${escapeHtml(q.options[q.correctIndex])}</div>` : ""}
-        ${q.explanation ? `<div class="review-answer" style="color:var(--text-muted);">${escapeHtml(q.explanation)}</div>` : ""}
+        ${correctString}
+        ${expString}
       </div>`;
-  }).join("");
-
+  });
+  
+  reviewEl.innerHTML = reviewHtmlList.join("");
   showView("view-results");
 }
 
