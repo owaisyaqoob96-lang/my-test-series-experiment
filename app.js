@@ -5,7 +5,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup,
-  sendEmailVerification, applyActionCode
+  sendEmailVerification, applyActionCode, sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
 
 // Only this account can create subjects / add questions — everyone else
@@ -65,8 +65,7 @@ document.getElementById("theme-toggle").addEventListener("click", () => {
 })();
 
 // ============================================================
-// Auth — anyone can create an account and take tests; only the
-// admin account (ADMIN_UID above) can add subjects/questions.
+// Auth
 // ============================================================
 let isSignupMode = false;
 const authForm = document.getElementById("auth-form");
@@ -76,6 +75,7 @@ const authSub = document.getElementById("auth-sub");
 const authSubmit = document.getElementById("auth-submit");
 const authSwitchText = document.getElementById("auth-switch-text");
 const authSwitchBtn = document.getElementById("auth-switch-btn");
+const forgotPwdBtn = document.getElementById("forgot-pwd-btn");
 
 function renderAuthMode() {
   authError.textContent = "";
@@ -85,12 +85,14 @@ function renderAuthMode() {
     authSubmit.textContent = "Create account";
     authSwitchText.textContent = "Already have an account?";
     authSwitchBtn.textContent = "Log in";
+    if (forgotPwdBtn) forgotPwdBtn.style.display = "none";
   } else {
     authTitle.textContent = "Welcome back";
     authSub.textContent = "Log in to continue your prep.";
     authSubmit.textContent = "Log in";
     authSwitchText.textContent = "New here?";
     authSwitchBtn.textContent = "Create an account";
+    if (forgotPwdBtn) forgotPwdBtn.style.display = "inline-block";
   }
 }
 authSwitchBtn.addEventListener("click", () => { isSignupMode = !isSignupMode; renderAuthMode(); });
@@ -158,13 +160,43 @@ authForm.addEventListener("submit", async (e) => {
   }
 });
 
+// ---------- Password Recovery ----------
+if (forgotPwdBtn) {
+  forgotPwdBtn.addEventListener("click", async () => {
+    const email = document.getElementById("auth-email").value.trim();
+    if (!email) {
+      showAuthNotice(false, "Type your email address in the box above, then click 'Forgot password?'");
+      return;
+    }
+    
+    authError.style.color = "var(--text-muted)";
+    authError.textContent = "Sending reset link...";
+    
+    try {
+      await sendPasswordResetEmail(auth, email);
+      showAuthNotice(true, "Password reset link sent! Check your inbox.");
+    } catch (err) {
+      const code = err.code || "";
+      if (code.includes("user-not-found")) {
+        showAuthNotice(false, "We couldn't find an account with that email address.");
+      } else if (code.includes("invalid-email")) {
+        showAuthNotice(false, "Please enter a valid email address.");
+      } else {
+        showAuthNotice(false, "Couldn't send the reset link. Please try again.");
+      }
+    }
+  });
+}
+
 document.getElementById("google-signin-btn").addEventListener("click", async () => {
   authError.style.color = "var(--danger)";
-  authError.textContent = "";
+  authError.textContent = "Connecting to Google...";
   try {
-    await signInWithPopup(auth, new GoogleAuthProvider());
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
   } catch (err) {
-    authError.textContent = "Couldn't sign in with Google — please try again.";
+    authError.textContent = `Google Error: ${err.message || err.code}`;
+    console.error(err);
   }
 });
 
@@ -274,7 +306,6 @@ function renderTestList() {
     row.className = "test-row";
     const hasQuestions = (s.questionCount || 0) > 0;
     
-    // Add delete button exclusively for admin
     const deleteBtn = isAdmin ? `<button class="btn btn-sm" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${s.id}">Delete</button>` : "";
 
     row.innerHTML = `
@@ -296,7 +327,6 @@ function renderTestList() {
     btn.addEventListener("click", () => startTest(btn.getAttribute("data-subject-id")));
   });
 
-  // Attach delete logic for admin
   if (isAdmin) {
     listEl.querySelectorAll("button[data-delete-id]").forEach(btn => {
       btn.addEventListener("click", async () => {
@@ -305,7 +335,7 @@ function renderTestList() {
           btn.textContent = "...";
           try {
             await deleteDoc(doc(db, "subjects", btn.getAttribute("data-delete-id")));
-            await loadSubjects(); // Refresh the list
+            await loadSubjects();
           } catch (e) {
             console.error(e);
             alert("Couldn't delete. Please try again.");
@@ -427,6 +457,7 @@ let visited = new Set();
 let currentIndex = 0;
 let timerInterval = null;
 let endTime = 0;
+let isTestActive = false; // Anti-cheating tracker
 
 async function startTest(subjectId) {
   currentSubject = subjectsCache.find(s => s.id === subjectId);
@@ -445,6 +476,8 @@ async function startTest(subjectId) {
   document.getElementById("test-subject-name").textContent = currentSubject.name;
   const durationMin = currentSubject.durationMinutes || 30;
   endTime = Date.now() + durationMin * 60 * 1000;
+
+  isTestActive = true; // Test is now live
 
   showView("view-test");
   renderQuestion();
@@ -539,6 +572,8 @@ document.getElementById("btn-submit-test").addEventListener("click", () => {
 });
 
 async function submitTest() {
+  isTestActive = false; // Turn off anti-cheating tracking once test is submitted
+  
   let correct = 0, wrong = 0, unattempted = 0;
   const topicStats = {};
   const reviewData = [];
@@ -627,10 +662,38 @@ function renderResults(r) {
 }
 
 // ============================================================
-// Utilities
+// Utilities & Anti-Cheating Handlers
 // ============================================================
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = String(str);
   return div.innerHTML;
+}
+
+// Trigger auto-submit if the user switches tabs during an active test
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && isTestActive) {
+    alert("Anti-Cheating Alert: You left the test tab! Your test has been automatically submitted.");
+    clearInterval(timerInterval);
+    submitTest();
+  }
+});
+
+// Home Button Functionality
+const homeLink = document.getElementById("home-link");
+if (homeLink) {
+  homeLink.addEventListener("click", () => {
+    if (!auth.currentUser) return; // Do nothing if the user isn't logged in yet
+
+    if (isTestActive) {
+      // Warn the user if they try to go home mid-test
+      if (confirm("Warning: You are in the middle of a test. If you go to the Dashboard, your test will be automatically submitted. Continue?")) {
+        clearInterval(timerInterval);
+        submitTest();
+      }
+    } else {
+      showView("view-app");
+      loadSubjects();
+    }
+  });
 }
