@@ -29,6 +29,7 @@
   --accent: #3FA9A5;
   --accent-strong: #55C4BF;
   --accent-contrast: #06201F;
+  --primary: var(--accent);
 
   --status-not-visited: #3A424C;
   --status-not-answered: #B5533C;
@@ -58,6 +59,7 @@
   --accent: #1F7A76;
   --accent-strong: #17605D;
   --accent-contrast: #F2FBFA;
+  --primary: var(--accent);
 
   --status-not-visited: #C9C5B8;
   --status-not-answered: #B5533C;
@@ -85,6 +87,7 @@
     --accent: #1F7A76;
     --accent-strong: #17605D;
     --accent-contrast: #F2FBFA;
+    --primary: var(--accent);
     --status-not-visited: #C9C5B8;
     --status-not-answered: #B5533C;
     --status-answered: #3E8760;
@@ -247,6 +250,14 @@ a { color: var(--accent); }
   border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 12px;
   font-family: var(--font-mono); font-size: 13px; resize: vertical;
 }
+/* Belt-and-braces: style the paste box by id too, in case it isn't
+   wrapped in .admin-grid (so it never falls back to a plain white box) */
+#raw-questions {
+  width: 100%; min-height: 150px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 12px;
+  font-family: var(--font-mono); font-size: 13px; resize: vertical; box-sizing: border-box;
+}
+#raw-questions::placeholder { color: var(--text-faint); }
 .admin-help { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; }
 .admin-help code { background: var(--surface-raised); padding: 1px 5px; border-radius: 3px; font-family: var(--font-mono); }
 .parse-report { margin-top: 12px; font-size: 13px; }
@@ -286,6 +297,9 @@ a { color: var(--accent); }
 .palette-panel {
   border-left: 1px solid var(--line); padding: 24px 22px; background: var(--surface);
   display: flex; flex-direction: column;
+}
+@media (min-width: 861px) {
+  .palette-panel { position: sticky; top: 0; height: 100vh; }
 }
 .timer {
   font-family: var(--font-mono); font-size: 30px; letter-spacing: 0.02em;
