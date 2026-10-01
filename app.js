@@ -31,7 +31,7 @@ const db = getFirestore(fbApp);
 // ============================================================
 // View switching & Theme
 // ============================================================
-const views = ["view-auth", "view-verify", "view-app", "view-test", "view-results"];
+const views = ["view-auth", "view-verify", "view-app", "view-test", "view-results", "view-manage-questions"];
 function showView(name) {
   views.forEach(v => document.getElementById(v).classList.toggle("hidden", v !== name));
 }
@@ -259,8 +259,15 @@ async function loadSubjects() {
       type: data.type || "Miscellaneous",
       testName: data.testName || data.name || "Untitled Test",
       durationMinutes: data.durationMinutes || 30,
+      order: data.order !== undefined ? data.order : 999999, // Added for reordering
       ...data
     });
+  });
+
+  // Sort tests by admin-defined 'order', falling back to creation date
+  subjectsCache.sort((a, b) => {
+    if(a.order !== b.order) return a.order - b.order;
+    return (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0);
   });
 
   for (const s of subjectsCache) {
@@ -327,13 +334,19 @@ async function renderTestList() {
       return;
     }
 
-    for (const t of tests) {
+    // Since we map with async calls inside the loop, we use a classic for-loop
+    for (let i = 0; i < tests.length; i++) {
+      const t = tests[i];
       const row = document.createElement("div");
       row.className = "test-row";
       row.style.gridColumn = "1 / -1"; 
 
       const hasQuestions = (t.questionCount || 0) > 0;
 
+      // NEW ADMIN BUTTONS (Up/Down/Questions)
+      const upBtn = isAdmin ? `<button class="order-btn" ${i === 0 ? "disabled" : ""} onclick="window.moveTest('${t.id}', -1)">↑</button>` : "";
+      const downBtn = isAdmin ? `<button class="order-btn" style="margin-right:8px;" ${i === tests.length - 1 ? "disabled" : ""} onclick="window.moveTest('${t.id}', 1)">↓</button>` : "";
+      const manageBtn = isAdmin ? `<button class="btn btn-sm manage-btn" style="background-color: var(--status-marked); color: white; margin-left: 8px; border: none;" data-manage-id="${t.id}">Questions</button>` : "";
       const editBtn = isAdmin ? `<button class="btn btn-sm edit-btn" style="background-color: var(--primary); color: white; margin-left: 8px; border: none;" data-edit-id="${t.id}">Edit</button>` : "";
       const deleteBtn = isAdmin ? `<button class="btn btn-sm delete-btn" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${t.id}">Delete</button>` : "";
 
@@ -349,7 +362,7 @@ async function renderTestList() {
           const ms = a.submittedAt && a.submittedAt.toMillis ? a.submittedAt.toMillis() : 0;
           if (!lastAttempt || ms > lastAttempt._ms) lastAttempt = { ...a, _ms: ms };
         });
-      } catch (e) { /* no prior attempt, or not readable yet — treat as unattempted */ }
+      } catch (e) { /* no prior attempt */ }
 
       const pct = lastAttempt && lastAttempt.total > 0 ? Math.round((lastAttempt.correct / lastAttempt.total) * 100) : null;
       const attemptBadge = lastAttempt
@@ -360,23 +373,24 @@ async function renderTestList() {
       row.innerHTML = `
         <div class="test-row-info">
           <h3>${escapeHtml(t.testName)}</h3>
-          <div class="test-row-meta">${t.questionCount || 0} questions · ${t.durationMinutes || 30} min</div>
-          ${attemptBadge}
+          <div class="test-row-meta">${t.questionCount || 0} questions · ${t.durationMinutes \vert{}\vert{} 30} min</div>${attemptBadge}
         </div>
         <div style="display: flex; align-items: center;">
           <button class="btn btn-primary btn-sm start-btn" ${hasQuestions ? "" : "disabled"} data-subject-id="${t.id}">
             ${startLabel}
           </button>
-          ${editBtn}${deleteBtn}
+          ${upBtn}${downBtn}${manageBtn}${editBtn}${deleteBtn}
         </div>
       `;
       listEl.appendChild(row);
     }
 
+    // Attach Start Event
     listEl.querySelectorAll(".start-btn").forEach(btn => {
       btn.addEventListener("click", () => startTest(btn.getAttribute("data-subject-id")));
     });
 
+    // Attach Admin Events
     if (isAdmin) {
       listEl.querySelectorAll(".delete-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
@@ -395,9 +409,47 @@ async function renderTestList() {
           openEditModal(btn.getAttribute("data-edit-id"));
         });
       });
+      
+      listEl.querySelectorAll(".manage-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          openManageQuestions(btn.getAttribute("data-manage-id"));
+        });
+      });
     }
   }
 }
+
+// ---------------- ADMIN: Reordering Tests ----------------
+window.moveTest = async function(testId, direction) {
+  // Disable buttons immediately so you can't double click
+  document.querySelectorAll('.order-btn').forEach(b => b.disabled = true);
+  
+  // Get all tests in the current folder, already sorted by our display logic
+  let testsInFolder = subjectsCache.filter(s => s.subject === navSubject && s.type === navType);
+  
+  const index = testsInFolder.findIndex(t => t.id === testId);
+  const swapIndex = index + direction;
+  
+  if (swapIndex < 0 || swapIndex >= testsInFolder.length) return;
+  
+  // Actually swap them in the array
+  const item = testsInFolder.splice(index, 1)[0];
+  testsInFolder.splice(swapIndex, 0, item);
+  
+  // Reassign clean index orders (0, 1, 2, 3...) to everything in the folder and save to database
+  const promises = testsInFolder.map((t, i) => {
+    return updateDoc(doc(db, "subjects", t.id), { order: i });
+  });
+  
+  try {
+    await Promise.all(promises);
+    await loadSubjects();
+  } catch(e) {
+    alert("Error reordering: " + e.message);
+    await loadSubjects();
+  }
+};
+
 
 function renderSubjectSelect() {
   const select = document.getElementById("target-subject");
@@ -491,6 +543,129 @@ document.getElementById("save-edit-btn").addEventListener("click", async () => {
   }
 });
 
+// ---------------- ADMIN: Manage Questions UI ----------------
+let managingSubjectId = null;
+let pendingManageImport = [];
+
+window.openManageQuestions = async function(subjectId) {
+  managingSubjectId = subjectId;
+  const test = subjectsCache.find(s => s.id === subjectId);
+  document.getElementById("manage-q-title").textContent = `Manage Questions: ${test.testName}`;
+  
+  showView("view-manage-questions");
+  await loadManageQuestionsList();
+};
+
+window.closeManageQuestions = function() {
+  managingSubjectId = null;
+  showView("view-app");
+  loadSubjects(); // Refresh dashboard counts
+};
+
+async function loadManageQuestionsList() {
+  const listEl = document.getElementById("manage-q-list");
+  listEl.innerHTML = "Loading questions...";
+  
+  const snap = await getDocs(collection(db, "subjects", managingSubjectId, "questions"));
+  let questions = [];
+  snap.forEach(d => questions.push({ id: d.id, ...d.data() }));
+  
+  // Sort questions by creation date just in case
+  questions.sort((a,b) => (a.createdAt?.toMillis()||0) - (b.createdAt?.toMillis()||0));
+
+  if (questions.length === 0) {
+    listEl.innerHTML = `<div class="test-row-empty" style="border: 1px dashed var(--line-strong); border-radius: 8px;">No questions in this test yet. Use the box below to add some.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = questions.map((q, idx) => {
+    let optionsHtml = q.options.map((opt, i) => {
+      let isCorrect = (i === q.correctIndex) ? '✅' : '';
+      return `<div style="margin-left: 10px;">${String.fromCharCode(65+i)}) ${escapeHtml(opt)}${isCorrect}</div>`;
+    }).join("");
+
+    return `
+    <div class="manage-q-item">
+      <div class="manage-q-text">
+        <strong style="color:var(--accent);">Q${idx + 1}:</strong>${escapeHtml(q.text)}
+        <div style="margin-top:8px; font-size: 0.9em; color:var(--text-muted);">${optionsHtml}</div>
+      </div>
+      <div class="manage-q-actions">
+        <button class="btn btn-sm btn-danger" onclick="window.deleteQuestion('${q.id}')">Delete</button>
+      </div>
+    </div>
+  `}).join("");
+}
+
+window.deleteQuestion = async function(questionId) {
+  if(!confirm("Are you sure you want to permanently delete this specific question?")) return;
+  try {
+    await deleteDoc(doc(db, "subjects", managingSubjectId, "questions", questionId));
+    await loadManageQuestionsList(); // Reload the list instantly
+  } catch(e) {
+    alert("Error deleting: " + e.message);
+  }
+};
+
+document.getElementById("manage-parse-btn").addEventListener("click", () => {
+  const raw = document.getElementById("manage-raw-questions").value;
+  const reportEl = document.getElementById("manage-parse-report");
+  const confirmBtn = document.getElementById("manage-confirm-btn");
+
+  if (!raw.trim()) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Paste some questions first.</span>`; return; }
+
+  const { results, errors } = parseQuestions(raw);
+  pendingManageImport = results; 
+
+  let html = `<div style="padding: 15px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; margin-top: 15px;">
+                <p style="margin: 0 0 5px 0;"><strong>Valid questions found:</strong> <span style="color:var(--success); font-weight:bold;">${results.length}</span></p>
+                <p style="margin: 0 0 10px 0;"><strong>Needs review:</strong> <span style="color:var(--danger); font-weight:bold;">${errors.length}</span></p>`;
+
+  if (errors.length > 0) {
+    let errorList = errors.map(e => `<li>${escapeHtml(e)}</li>`).join("");
+    html += `<div style="background: rgba(220, 38, 38, 0.1); color: var(--danger); padding: 10px; border-radius: 6px; font-size: 0.9rem; margin-bottom: 10px;">
+               <strong>Errors:</strong><ul style="margin: 5px 0 0 20px;">${errorList}</ul>
+             </div>`;
+  }
+
+  if (results.length > 0) {
+    confirmBtn.classList.remove("hidden");
+    confirmBtn.innerText = `Confirm Adding (${results.length} questions)`;
+  } else {
+    confirmBtn.classList.add("hidden");
+  }
+
+  html += `</div>`;
+  reportEl.innerHTML = html;
+});
+
+document.getElementById("manage-confirm-btn").addEventListener("click", async () => {
+  const reportEl = document.getElementById("manage-parse-report");
+  const confirmBtn = document.getElementById("manage-confirm-btn");
+  const parseBtn = document.getElementById("manage-parse-btn");
+
+  confirmBtn.disabled = true;
+  parseBtn.disabled = true;
+  confirmBtn.innerText = "Adding...";
+
+  try {
+    await Promise.all(pendingManageImport.map(q => addDoc(collection(db, "subjects", managingSubjectId, "questions"), q)));
+    reportEl.innerHTML = `<div style="color: var(--success); font-weight: bold; margin-top: 10px;">✅ Successfully added ${pendingManageImport.length} questions!</div>`;
+    document.getElementById("manage-raw-questions").value = "";
+    pendingManageImport = [];
+    confirmBtn.classList.add("hidden");
+    
+    // Refresh the list immediately so you see the new questions
+    await loadManageQuestionsList();
+  } catch (err) {
+    reportEl.innerHTML += `<div class="auth-error" style="margin-top:10px; color: var(--danger);">Upload failed. Please try again.</div>`;
+  } finally {
+    confirmBtn.disabled = false;
+    parseBtn.disabled = false;
+  }
+});
+
+
 // ============================================================
 // DOCUMENT UPLOAD & EXTRACTION LOGIC (PDF, WORD, TXT)
 // ============================================================
@@ -551,7 +726,6 @@ document.getElementById("file-upload").addEventListener("change", async function
 // ============================================================
 function parseQuestions(rawText) {
   
-  // FIXED BUG: Safely escaping the backtick character for the bundler
   let cleanRaw = rawText
     .replace(/\*\*/g, '')           
     .replace(/###\s*/g, '')         
@@ -786,11 +960,6 @@ document.getElementById("confirm-import-btn").addEventListener("click", async ()
     confirmBtn.disabled = false;
     parseBtn.disabled = false;
   }
-});
-
-document.getElementById("back-to-dashboard").addEventListener("click", () => {
-  showView("view-app");
-  loadSubjects();
 });
 
 // ============================================================
