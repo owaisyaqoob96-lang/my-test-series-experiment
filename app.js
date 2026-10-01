@@ -31,7 +31,7 @@ const db = getFirestore(fbApp);
 // ============================================================
 // View switching & Theme
 // ============================================================
-const views = ["view-auth", "view-verify", "view-app", "view-test", "view-results"];
+const views = ["view-auth", "view-verify", "view-app", "view-test", "view-results", "view-manage-questions"];
 function showView(name) {
   views.forEach(v => document.getElementById(v).classList.toggle("hidden", v !== name));
 }
@@ -236,11 +236,12 @@ onAuthStateChanged(auth, async () => {
 
 
 // ============================================================
-// Dashboard: Folders, Tests & Admin Panel
+// Dashboard: Folders, Tests & Admin Panel (DRAG AND DROP)
 // ============================================================
 let subjectsCache = [];
 let navSubject = null; 
 let navType = null;    
+let draggedTestId = null; // Used for drag-and-drop
 
 const folderIconSvg = `<svg class="folder-icon" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
 
@@ -259,8 +260,15 @@ async function loadSubjects() {
       type: data.type || "Miscellaneous",
       testName: data.testName || data.name || "Untitled Test",
       durationMinutes: data.durationMinutes || 30,
+      order: data.order !== undefined ? data.order : 999999, // Fallback for order
       ...data
     });
+  });
+
+  // Sort tests by admin-defined 'order', falling back to creation date
+  subjectsCache.sort((a, b) => {
+    if(a.order !== b.order) return a.order - b.order;
+    return (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0);
   });
 
   for (const s of subjectsCache) {
@@ -318,7 +326,7 @@ async function renderTestList() {
     });
   } 
   else {
-    breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span> > <span class="breadcrumb-link" onclick="goSubjectFolder()">${escapeHtml(navSubject)}</span> >${escapeHtml(navType)}`;
+    breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span> > <span class="breadcrumb-link" onclick="goSubjectFolder()">${escapeHtml(navSubject)}</span> > ${escapeHtml(navType)}`;
     
     const tests = subjectsCache.filter(s => s.subject === navSubject && s.type === navType);
     
@@ -327,13 +335,57 @@ async function renderTestList() {
       return;
     }
 
-    for (const t of tests) {
+    for (let i = 0; i < tests.length; i++) {
+      const t = tests[i];
       const row = document.createElement("div");
       row.className = "test-row";
       row.style.gridColumn = "1 / -1"; 
+      
+      // ADD DRAG AND DROP CAPABILITY FOR ADMINS
+      if (isAdmin) {
+        row.draggable = true;
+        row.classList.add("draggable");
+        row.dataset.id = t.id;
+        
+        row.addEventListener("dragstart", (e) => {
+          draggedTestId = t.id;
+          e.dataTransfer.effectAllowed = 'move';
+          setTimeout(() => row.style.opacity = '0.5', 0);
+        });
+        
+        row.addEventListener("dragend", (e) => {
+          row.style.opacity = '1';
+          document.querySelectorAll('.test-row').forEach(r => r.classList.remove('drag-over'));
+        });
+        
+        row.addEventListener("dragover", (e) => {
+          e.preventDefault(); 
+          e.dataTransfer.dropEffect = 'move';
+          return false;
+        });
+        
+        row.addEventListener("dragenter", (e) => {
+          e.preventDefault();
+          if(t.id !== draggedTestId) row.classList.add('drag-over');
+        });
+        
+        row.addEventListener("dragleave", (e) => {
+          row.classList.remove('drag-over');
+        });
+        
+        row.addEventListener("drop", async (e) => {
+          e.stopPropagation();
+          row.classList.remove('drag-over');
+          if (draggedTestId && draggedTestId !== t.id) {
+            await executeReorder(draggedTestId, t.id);
+          }
+        });
+      }
 
       const hasQuestions = (t.questionCount || 0) > 0;
 
+      // Admin Action Buttons
+      const manageBtn = isAdmin ? `<button class="btn btn-sm manage-btn" style="background-color: var(--status-marked); color: white; margin-left: 8px; border: none;" data-manage-id="${t.id}">Questions</button>` : "";
       const editBtn = isAdmin ? `<button class="btn btn-sm edit-btn" style="background-color: var(--primary); color: white; margin-left: 8px; border: none;" data-edit-id="${t.id}">Edit</button>` : "";
       const deleteBtn = isAdmin ? `<button class="btn btn-sm delete-btn" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${t.id}">Delete</button>` : "";
 
@@ -349,7 +401,7 @@ async function renderTestList() {
           const ms = a.submittedAt && a.submittedAt.toMillis ? a.submittedAt.toMillis() : 0;
           if (!lastAttempt || ms > lastAttempt._ms) lastAttempt = { ...a, _ms: ms };
         });
-      } catch (e) { /* no prior attempt, or not readable yet — treat as unattempted */ }
+      } catch (e) { /* no prior attempt */ }
 
       const pct = lastAttempt && lastAttempt.total > 0 ? Math.round((lastAttempt.correct / lastAttempt.total) * 100) : null;
       const attemptBadge = lastAttempt
@@ -357,17 +409,21 @@ async function renderTestList() {
         : "";
       const startLabel = hasQuestions ? (lastAttempt ? "Retake test" : "Start test") : "No questions yet";
 
+      // Admin visual hint for dragging
+      const dragHint = isAdmin ? `<div style="color: var(--text-faint); font-size: 11px; margin-top: 5px;">↕ Drag row to reorder</div>` : "";
+
       row.innerHTML = `
         <div class="test-row-info">
           <h3>${escapeHtml(t.testName)}</h3>
           <div class="test-row-meta">${t.questionCount || 0} questions · ${t.durationMinutes || 30} min</div>
           ${attemptBadge}
+          ${dragHint}
         </div>
         <div style="display: flex; align-items: center;">
           <button class="btn btn-primary btn-sm start-btn" ${hasQuestions ? "" : "disabled"} data-subject-id="${t.id}">
             ${startLabel}
           </button>
-          ${editBtn}${deleteBtn}
+          ${manageBtn}${editBtn}${deleteBtn}
         </div>
       `;
       listEl.appendChild(row);
@@ -395,7 +451,43 @@ async function renderTestList() {
           openEditModal(btn.getAttribute("data-edit-id"));
         });
       });
+      
+      listEl.querySelectorAll(".manage-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          openManageQuestions(btn.getAttribute("data-manage-id"));
+        });
+      });
     }
+  }
+}
+
+// ---------------- ADMIN: Execute Drag and Drop Reorder ----------------
+async function executeReorder(draggedId, targetId) {
+  let testsInFolder = subjectsCache.filter(s => s.subject === navSubject && s.type === navType);
+  
+  const oldIndex = testsInFolder.findIndex(t => t.id === draggedId);
+  const newIndex = testsInFolder.findIndex(t => t.id === targetId);
+  
+  if (oldIndex === -1 || newIndex === -1) return;
+  
+  // Rearrange array
+  const [movedItem] = testsInFolder.splice(oldIndex, 1);
+  testsInFolder.splice(newIndex, 0, movedItem);
+  
+  // Update UI immediately for responsiveness
+  testsInFolder.forEach((t, i) => t.order = i);
+  renderTestList();
+  
+  // Sync to database
+  const promises = testsInFolder.map((t, i) => {
+    return updateDoc(doc(db, "subjects", t.id), { order: i });
+  });
+  
+  try {
+    await Promise.all(promises);
+  } catch(e) {
+    console.error("Error saving reorder to database:", e);
+    alert("Reordering failed to save.");
   }
 }
 
@@ -403,7 +495,7 @@ function renderSubjectSelect() {
   const select = document.getElementById("target-subject");
   if(select) {
     select.innerHTML = subjectsCache.map(s => 
-      `<option value="${s.id}">${escapeHtml(s.subject)} > ${escapeHtml(s.type)} >${escapeHtml(s.testName)}</option>`
+      `<option value="${s.id}">${escapeHtml(s.subject)} > ${escapeHtml(s.type)} > ${escapeHtml(s.testName)}</option>`
     ).join("");
   }
 }
@@ -491,6 +583,131 @@ document.getElementById("save-edit-btn").addEventListener("click", async () => {
   }
 });
 
+// ---------------- ADMIN: Manage Questions UI ----------------
+let managingSubjectId = null;
+let pendingManageImport = [];
+
+window.openManageQuestions = async function(subjectId) {
+  managingSubjectId = subjectId;
+  const test = subjectsCache.find(s => s.id === subjectId);
+  document.getElementById("manage-q-title").textContent = `Manage Questions: ${test.testName}`;
+  
+  showView("view-manage-questions");
+  await loadManageQuestionsList();
+};
+
+window.closeManageQuestions = function() {
+  managingSubjectId = null;
+  showView("view-app");
+  loadSubjects(); 
+};
+
+async function loadManageQuestionsList() {
+  const listEl = document.getElementById("manage-q-list");
+  listEl.innerHTML = "Loading questions...";
+  
+  const snap = await getDocs(collection(db, "subjects", managingSubjectId, "questions"));
+  let questions = [];
+  snap.forEach(d => questions.push({ id: d.id, ...d.data() }));
+  
+  questions.sort((a,b) => (a.createdAt?.toMillis()||0) - (b.createdAt?.toMillis()||0));
+
+  if (questions.length === 0) {
+    listEl.innerHTML = `<div class="test-row-empty" style="border: 1px dashed var(--line-strong); border-radius: 8px;">No questions in this test yet. Use the box below to add some.</div>`;
+    return;
+  }
+
+  // Safe concatenation without backticks
+  let buildHtml = "";
+  for(let idx = 0; idx < questions.length; idx++) {
+    let q = questions[idx];
+    
+    let optionsHtml = "";
+    for(let i = 0; i < q.options.length; i++) {
+        let isCorrect = (i === q.correctIndex) ? '✅' : '';
+        optionsHtml += '<div style="margin-left: 10px;">' + String.fromCharCode(65+i) + ') ' + escapeHtml(q.options[i]) + ' ' + isCorrect + '</div>';
+    }
+
+    buildHtml += '<div class="manage-q-item">';
+    buildHtml += '<div class="manage-q-text">';
+    buildHtml += '<strong style="color:var(--accent);">Q' + (idx + 1) + ':</strong> ' + escapeHtml(q.text);
+    buildHtml += '<div style="margin-top:8px; font-size: 0.9em; color:var(--text-muted);">' + optionsHtml + '</div>';
+    buildHtml += '</div>';
+    buildHtml += '<div class="manage-q-actions">';
+    buildHtml += '<button class="btn btn-sm btn-danger" onclick="window.deleteQuestion(\'' + q.id + '\')">Delete</button>';
+    buildHtml += '</div></div>';
+  }
+  listEl.innerHTML = buildHtml;
+}
+
+window.deleteQuestion = async function(questionId) {
+  if(!confirm("Are you sure you want to permanently delete this specific question?")) return;
+  try {
+    await deleteDoc(doc(db, "subjects", managingSubjectId, "questions", questionId));
+    await loadManageQuestionsList(); 
+  } catch(e) {
+    alert("Error deleting: " + e.message);
+  }
+};
+
+document.getElementById("manage-parse-btn").addEventListener("click", () => {
+  const raw = document.getElementById("manage-raw-questions").value;
+  const reportEl = document.getElementById("manage-parse-report");
+  const confirmBtn = document.getElementById("manage-confirm-btn");
+
+  if (!raw.trim()) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Paste some questions first.</span>`; return; }
+
+  const { results, errors } = parseQuestions(raw);
+  pendingManageImport = results; 
+
+  let html = `<div style="padding: 15px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; margin-top: 15px;">
+                <p style="margin: 0 0 5px 0;"><strong>Valid questions found:</strong> <span style="color:var(--success); font-weight:bold;">${results.length}</span></p>
+                <p style="margin: 0 0 10px 0;"><strong>Needs review:</strong> <span style="color:var(--danger); font-weight:bold;">${errors.length}</span></p>`;
+
+  if (errors.length > 0) {
+    let errorList = errors.map(e => `<li>${escapeHtml(e)}</li>`).join("");
+    html += `<div style="background: rgba(220, 38, 38, 0.1); color: var(--danger); padding: 10px; border-radius: 6px; font-size: 0.9rem; margin-bottom: 10px;">
+               <strong>Errors:</strong><ul style="margin: 5px 0 0 20px;">${errorList}</ul>
+             </div>`;
+  }
+
+  if (results.length > 0) {
+    confirmBtn.classList.remove("hidden");
+    confirmBtn.innerText = `Confirm Adding (${results.length} questions)`;
+  } else {
+    confirmBtn.classList.add("hidden");
+  }
+
+  html += `</div>`;
+  reportEl.innerHTML = html;
+});
+
+document.getElementById("manage-confirm-btn").addEventListener("click", async () => {
+  const reportEl = document.getElementById("manage-parse-report");
+  const confirmBtn = document.getElementById("manage-confirm-btn");
+  const parseBtn = document.getElementById("manage-parse-btn");
+
+  confirmBtn.disabled = true;
+  parseBtn.disabled = true;
+  confirmBtn.innerText = "Adding...";
+
+  try {
+    await Promise.all(pendingManageImport.map(q => addDoc(collection(db, "subjects", managingSubjectId, "questions"), q)));
+    reportEl.innerHTML = `<div style="color: var(--success); font-weight: bold; margin-top: 10px;">✅ Successfully added ${pendingManageImport.length} questions!</div>`;
+    document.getElementById("manage-raw-questions").value = "";
+    pendingManageImport = [];
+    confirmBtn.classList.add("hidden");
+    
+    await loadManageQuestionsList();
+  } catch (err) {
+    reportEl.innerHTML += `<div class="auth-error" style="margin-top:10px; color: var(--danger);">Upload failed. Please try again.</div>`;
+  } finally {
+    confirmBtn.disabled = false;
+    parseBtn.disabled = false;
+  }
+});
+
+
 // ============================================================
 // DOCUMENT UPLOAD & EXTRACTION LOGIC (PDF, WORD, TXT)
 // ============================================================
@@ -506,11 +723,9 @@ document.getElementById("file-upload").addEventListener("change", async function
   try {
     let extractedText = "";
 
-    // 1. Handle Text Files
     if (file.type === "text/plain") {
       extractedText = await file.text();
     } 
-    // 2. Handle PDF Files
     else if (file.type === "application/pdf") {
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -521,7 +736,6 @@ document.getElementById("file-upload").addEventListener("change", async function
         extractedText += pageText + "\n\n";
       }
     } 
-    // 3. Handle Word Documents (.docx)
     else if (file.name.endsWith(".docx")) {
       const arrayBuffer = await file.arrayBuffer();
       const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
@@ -531,7 +745,6 @@ document.getElementById("file-upload").addEventListener("change", async function
       throw new Error("Unsupported file format. Please upload PDF, Word (.docx), or TXT.");
     }
 
-    // Success! Dump text into the box for parsing
     rawBox.value = extractedText;
     statusText.textContent = "Extraction complete! Click 'Preview Questions'.";
     statusText.style.color = "var(--success)";
@@ -542,7 +755,6 @@ document.getElementById("file-upload").addEventListener("change", async function
     statusText.style.color = "var(--danger)";
   }
   
-  // Reset file input so you can upload the same file again if needed
   event.target.value = '';
 });
 
@@ -551,12 +763,14 @@ document.getElementById("file-upload").addEventListener("change", async function
 // ============================================================
 function parseQuestions(rawText) {
   
-  // FIXED BUG: Safely escaping the backtick character for the bundler
+  // FLAT, BULLETPROOF CLEANING LOGIC (No regex backticks)
   let cleanRaw = rawText
-    .replace(/\*\*/g, '')           
-    .replace(/###\s*/g, '')         
-    .replace(/^\s*\*\s+/gm, '')     
-    .replace(/[`]/g, '');             
+    .split('**').join('')
+    .split('### ').join('')
+    .split(String.fromCharCode(96)).join(''); // ASCII 96 is the backtick
+
+  // Strip bullets safely
+  cleanRaw = cleanRaw.replace(/^\s*\*\s+/gm, '');
 
   const lines = cleanRaw.replace(/\r\n/g, '\n').split('\n');
   const results = [];
@@ -776,7 +990,7 @@ document.getElementById("confirm-import-btn").addEventListener("click", async ()
       ✅ Successfully imported ${pendingImport.length} questions!
     </div>`;
     document.getElementById("raw-questions").value = "";
-    document.getElementById("upload-status").textContent = ""; // Clear file upload text
+    document.getElementById("upload-status").textContent = ""; 
     pendingImport = [];
     confirmBtn.classList.add("hidden");
     await loadSubjects();
@@ -786,11 +1000,6 @@ document.getElementById("confirm-import-btn").addEventListener("click", async ()
     confirmBtn.disabled = false;
     parseBtn.disabled = false;
   }
-});
-
-document.getElementById("back-to-dashboard").addEventListener("click", () => {
-  showView("view-app");
-  loadSubjects();
 });
 
 // ============================================================
