@@ -7,12 +7,12 @@ import {
   createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup,
   sendEmailVerification, applyActionCode, sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+
+const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
 import {
   getFirestore, collection, addDoc, getDocs, getCountFromServer,
   serverTimestamp, deleteDoc, doc, updateDoc, query, where
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
-
-const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDjHj-QuqyD58jHuJopsml8e1U7jMiUuOc",
@@ -31,7 +31,7 @@ const db = getFirestore(fbApp);
 // ============================================================
 // View switching & Theme
 // ============================================================
-const views = ["view-auth", "view-verify", "view-app", "view-test", "view-results", "view-manage-questions"];
+const views = ["view-auth", "view-verify", "view-app", "view-test", "view-results"];
 function showView(name) {
   views.forEach(v => document.getElementById(v).classList.toggle("hidden", v !== name));
 }
@@ -234,13 +234,13 @@ onAuthStateChanged(auth, async () => {
   routeUser(auth.currentUser);
 });
 
+
 // ============================================================
-// Dashboard: Folders, Tests & Admin Panel (DRAG AND DROP)
+// Dashboard: Folders, Tests & Admin Panel
 // ============================================================
 let subjectsCache = [];
 let navSubject = null; 
 let navType = null;    
-let draggedTestId = null; // Variable for drag-and-drop state
 
 const folderIconSvg = `<svg class="folder-icon" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
 
@@ -248,50 +248,32 @@ async function loadSubjects() {
   const listEl = document.getElementById("test-list");
   if(listEl) listEl.innerHTML = `<div class="test-row-empty">Loading…</div>`;
   
-  try {
-    const snap = await getDocs(collection(db, "subjects"));
-    subjectsCache = [];
-    
-    snap.forEach(d => {
-      const data = d.data();
-      subjectsCache.push({
-        id: d.id,
-        subject: data.subject || "General / Uncategorized",
-        type: data.type || "Miscellaneous",
-        testName: data.testName || data.name || "Untitled Test",
-        durationMinutes: data.durationMinutes || 30,
-        order: data.order !== undefined ? data.order : 999999, // Safely fallback to bottom
-        ...data
-      });
+  const snap = await getDocs(collection(db, "subjects"));
+  subjectsCache = [];
+  
+  snap.forEach(d => {
+    const data = d.data();
+    subjectsCache.push({
+      id: d.id,
+      subject: data.subject || "General / Uncategorized",
+      type: data.type || "Miscellaneous",
+      testName: data.testName || data.name || "Untitled Test",
+      durationMinutes: data.durationMinutes || 30,
+      ...data
     });
+  });
 
-    // Safely sort tests by admin-defined 'order'
-    subjectsCache.sort((a, b) => {
-      let orderA = a.order;
-      let orderB = b.order;
-      if (orderA !== orderB) return orderA - orderB;
-      
-      let timeA = (a.createdAt && typeof a.createdAt.toMillis === 'function') ? a.createdAt.toMillis() : 0;
-      let timeB = (b.createdAt && typeof b.createdAt.toMillis === 'function') ? b.createdAt.toMillis() : 0;
-      return timeA - timeB;
-    });
-
-    // Safely count questions
-    for (const s of subjectsCache) {
-      try {
-        const countSnap = await getCountFromServer(collection(db, "subjects", s.id, "questions"));
-        s.questionCount = countSnap.data().count;
-      } catch (err) {
-        s.questionCount = 0;
-      }
+  for (const s of subjectsCache) {
+    try {
+      const countSnap = await getCountFromServer(collection(db, "subjects", s.id, "questions"));
+      s.questionCount = countSnap.data().count;
+    } catch {
+      s.questionCount = 0;
     }
-    
-    renderTestList();
-    renderSubjectSelect();
-  } catch (error) {
-    console.error("Error loading subjects:", error);
-    if(listEl) listEl.innerHTML = `<div class="test-row-empty" style="color:var(--danger)">Error loading tests. Please refresh.</div>`;
   }
+  
+  renderTestList();
+  renderSubjectSelect();
 }
 
 window.goHomeFolder = function() { navSubject = null; navType = null; renderTestList(); };
@@ -336,7 +318,7 @@ async function renderTestList() {
     });
   } 
   else {
-    breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span> > <span class="breadcrumb-link" onclick="goSubjectFolder()">${escapeHtml(navSubject)}</span> > ${escapeHtml(navType)}`;
+    breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span> > <span class="breadcrumb-link" onclick="goSubjectFolder()">${escapeHtml(navSubject)}</span> >${escapeHtml(navType)}`;
     
     const tests = subjectsCache.filter(s => s.subject === navSubject && s.type === navType);
     
@@ -345,75 +327,29 @@ async function renderTestList() {
       return;
     }
 
-    for (let i = 0; i < tests.length; i++) {
-      const t = tests[i];
+    for (const t of tests) {
       const row = document.createElement("div");
       row.className = "test-row";
       row.style.gridColumn = "1 / -1"; 
-      
-      // DRAG AND DROP PHYSICS FOR ADMINS
-      if (isAdmin) {
-        row.draggable = true;
-        row.classList.add("draggable");
-        row.dataset.id = t.id;
-        
-        row.addEventListener("dragstart", (e) => {
-          draggedTestId = t.id;
-          e.dataTransfer.effectAllowed = 'move';
-          setTimeout(() => row.style.opacity = '0.5', 0);
-        });
-        
-        row.addEventListener("dragend", (e) => {
-          row.style.opacity = '1';
-          document.querySelectorAll('.test-row').forEach(r => r.classList.remove('drag-over'));
-        });
-        
-        row.addEventListener("dragover", (e) => {
-          e.preventDefault(); 
-          e.dataTransfer.dropEffect = 'move';
-          return false;
-        });
-        
-        row.addEventListener("dragenter", (e) => {
-          e.preventDefault();
-          if(t.id !== draggedTestId) row.classList.add('drag-over');
-        });
-        
-        row.addEventListener("dragleave", (e) => {
-          row.classList.remove('drag-over');
-        });
-        
-        row.addEventListener("drop", async (e) => {
-          e.stopPropagation();
-          row.classList.remove('drag-over');
-          if (draggedTestId && draggedTestId !== t.id) {
-            await executeReorder(draggedTestId, t.id);
-          }
-        });
-      }
 
       const hasQuestions = (t.questionCount || 0) > 0;
 
-      // Admin Action Buttons
-      const manageBtn = isAdmin ? `<button class="btn btn-sm manage-btn" style="background-color: var(--status-marked); color: white; margin-left: 8px; border: none;" data-manage-id="${t.id}">Questions</button>` : "";
       const editBtn = isAdmin ? `<button class="btn btn-sm edit-btn" style="background-color: var(--primary); color: white; margin-left: 8px; border: none;" data-edit-id="${t.id}">Edit</button>` : "";
       const deleteBtn = isAdmin ? `<button class="btn btn-sm delete-btn" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${t.id}">Delete</button>` : "";
 
       let lastAttempt = null;
-      if (auth.currentUser) {
-        try {
-          const attemptSnap = await getDocs(query(
-            collection(db, "attempts"),
-            where("uid", "==", auth.currentUser.uid),
-            where("subjectId", "==", t.id)
-          ));
-          attemptSnap.forEach(d => {
-            const a = d.data();
-            const ms = (a.submittedAt && typeof a.submittedAt.toMillis === 'function') ? a.submittedAt.toMillis() : 0;
-            if (!lastAttempt || ms > lastAttempt._ms) lastAttempt = { ...a, _ms: ms };
-          });
-        } catch (e) { /* silent catch for empty attempts */ }
-      }
+      try {
+        const attemptSnap = await getDocs(query(
+          collection(db, "attempts"),
+          where("uid", "==", auth.currentUser.uid),
+          where("subjectId", "==", t.id)
+        ));
+        attemptSnap.forEach(d => {
+          const a = d.data();
+          const ms = a.submittedAt && a.submittedAt.toMillis ? a.submittedAt.toMillis() : 0;
+          if (!lastAttempt || ms > lastAttempt._ms) lastAttempt = { ...a, _ms: ms };
+        });
+      } catch (e) { /* no prior attempt, or not readable yet — treat as unattempted */ }
 
       const pct = lastAttempt && lastAttempt.total > 0 ? Math.round((lastAttempt.correct / lastAttempt.total) * 100) : null;
       const attemptBadge = lastAttempt
@@ -421,21 +357,17 @@ async function renderTestList() {
         : "";
       const startLabel = hasQuestions ? (lastAttempt ? "Retake test" : "Start test") : "No questions yet";
 
-      // Admin visual hint for dragging
-      const dragHint = isAdmin ? `<div style="color: var(--text-faint); font-size: 11px; margin-top: 5px;">↕ Click and drag row to reorder</div>` : "";
-
       row.innerHTML = `
         <div class="test-row-info">
           <h3>${escapeHtml(t.testName)}</h3>
           <div class="test-row-meta">${t.questionCount || 0} questions · ${t.durationMinutes || 30} min</div>
           ${attemptBadge}
-          ${dragHint}
         </div>
         <div style="display: flex; align-items: center;">
           <button class="btn btn-primary btn-sm start-btn" ${hasQuestions ? "" : "disabled"} data-subject-id="${t.id}">
             ${startLabel}
           </button>
-          ${manageBtn}${editBtn}${deleteBtn}
+          ${editBtn}${deleteBtn}
         </div>
       `;
       listEl.appendChild(row);
@@ -463,34 +395,654 @@ async function renderTestList() {
           openEditModal(btn.getAttribute("data-edit-id"));
         });
       });
-      
-      listEl.querySelectorAll(".manage-btn").forEach(btn => {
-        btn.addEventListener("click", () => {
-          openManageQuestions(btn.getAttribute("data-manage-id"));
-        });
-      });
     }
   }
 }
 
-// ---------------- ADMIN: Execute Drag and Drop Reorder ----------------
-async function executeReorder(draggedId, targetId) {
-  let testsInFolder = subjectsCache.filter(s => s.subject === navSubject && s.type === navType);
+function renderSubjectSelect() {
+  const select = document.getElementById("target-subject");
+  if(select) {
+    select.innerHTML = subjectsCache.map(s => 
+      `<option value="${s.id}">${escapeHtml(s.subject)} > ${escapeHtml(s.type)} >${escapeHtml(s.testName)}</option>`
+    ).join("");
+  }
+}
+
+// ---------------- ADMIN: Create Test Container ----------------
+document.getElementById("create-subject-btn").addEventListener("click", async () => {
+  const subjectInput = document.getElementById("new-subject").value.trim() || "General";
+  const typeInput = document.getElementById("new-type").value || "Miscellaneous";
+  const testNameInput = document.getElementById("new-test-name").value.trim() || "Untitled Test";
+  const durationInput = parseInt(document.getElementById("new-duration").value, 10) || 30;
+
+  const btn = document.getElementById("create-subject-btn");
+  btn.disabled = true;
+  btn.textContent = "Creating...";
+
+  try {
+    await addDoc(collection(db, "subjects"), { 
+      subject: subjectInput,
+      type: typeInput,
+      testName: testNameInput,
+      durationMinutes: durationInput, 
+      createdAt: serverTimestamp() 
+    });
+    
+    document.getElementById("new-subject").value = "";
+    document.getElementById("new-test-name").value = "";
+    document.getElementById("new-duration").value = "";
+    
+    navSubject = subjectInput;
+    navType = typeInput;
+    await loadSubjects();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Create Test Container";
+  }
+});
+
+// ---------------- ADMIN: Edit Modal Logic ----------------
+const editModal = document.getElementById("edit-test-modal");
+
+function openEditModal(testId) {
+  const test = subjectsCache.find(s => s.id === testId);
+  if(!test) return;
   
-  const oldIndex = testsInFolder.findIndex(t => t.id === draggedId);
-  const newIndex = testsInFolder.findIndex(t => t.id === targetId);
+  document.getElementById("edit-test-id").value = test.id;
+  document.getElementById("edit-subject").value = test.subject || "";
+  document.getElementById("edit-type").value = test.type || "Miscellaneous";
+  document.getElementById("edit-test-name").value = test.testName || "";
+  document.getElementById("edit-duration").value = test.durationMinutes || 30;
   
-  if (oldIndex === -1 || newIndex === -1) return;
+  editModal.classList.remove("hidden");
+}
+
+document.getElementById("cancel-edit-btn").addEventListener("click", () => {
+  editModal.classList.add("hidden");
+});
+
+document.getElementById("save-edit-btn").addEventListener("click", async () => {
+  const id = document.getElementById("edit-test-id").value;
+  const newSubject = document.getElementById("edit-subject").value.trim() || "General";
+  const newType = document.getElementById("edit-type").value || "Miscellaneous";
+  const newTestName = document.getElementById("edit-test-name").value.trim() || "Untitled Test";
+  const newDuration = parseInt(document.getElementById("edit-duration").value, 10) || 30;
   
-  // Rearrange array locally
-  const [movedItem] = testsInFolder.splice(oldIndex, 1);
-  testsInFolder.splice(newIndex, 0, movedItem);
+  const btn = document.getElementById("save-edit-btn");
+  btn.disabled = true;
+  btn.textContent = "Saving...";
   
-  // Assign new order values
-  testsInFolder.forEach((t, i) => { t.order = i; });
+  try {
+    await updateDoc(doc(db, "subjects", id), {
+      subject: newSubject,
+      type: newType,
+      testName: newTestName,
+      name: newTestName, 
+      durationMinutes: newDuration
+    });
+    
+    editModal.classList.add("hidden");
+    await loadSubjects();
+  } catch(e) {
+    alert("Error updating test: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save Changes";
+  }
+});
+
+// ============================================================
+// DOCUMENT UPLOAD & EXTRACTION LOGIC (PDF, WORD, TXT)
+// ============================================================
+document.getElementById("file-upload").addEventListener("change", async function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const statusText = document.getElementById("upload-status");
+  const rawBox = document.getElementById("raw-questions");
+  statusText.textContent = "Extracting text... please wait.";
+  statusText.style.color = "var(--primary)";
+
+  try {
+    let extractedText = "";
+
+    // 1. Handle Text Files
+    if (file.type === "text/plain") {
+      extractedText = await file.text();
+    } 
+    // 2. Handle PDF Files
+    else if (file.type === "application/pdf") {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(" ");
+        extractedText += pageText + "\n\n";
+      }
+    } 
+    // 3. Handle Word Documents (.docx)
+    else if (file.name.endsWith(".docx")) {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+      extractedText = result.value;
+    } 
+    else {
+      throw new Error("Unsupported file format. Please upload PDF, Word (.docx), or TXT.");
+    }
+
+    // Success! Dump text into the box for parsing
+    rawBox.value = extractedText;
+    statusText.textContent = "Extraction complete! Click 'Preview Questions'.";
+    statusText.style.color = "var(--success)";
+
+  } catch (error) {
+    console.error(error);
+    statusText.textContent = "Error extracting file: " + error.message;
+    statusText.style.color = "var(--danger)";
+  }
   
-  // Re-sort the main cache so renderTestList picks up the new order safely
-  subjectsCache.sort((a, b) => {
-    let orderA = a.order;
-    let orderB = b.order;
-    if (
+  // Reset file input so you can upload the same file again if needed
+  event.target.value = '';
+});
+
+// ============================================================
+// INTELLIGENT RAW TEXT PARSER (State Machine Architecture)
+// ============================================================
+function parseQuestions(rawText) {
+  
+  // FIXED BUG: Safely escaping the backtick character for the bundler
+  let cleanRaw = rawText
+    .replace(/\*\*/g, '')           
+    .replace(/###\s*/g, '')         
+    .replace(/^\s*\*\s+/gm, '')     
+    .replace(/[`]/g, '');             
+
+  const lines = cleanRaw.replace(/\r\n/g, '\n').split('\n');
+  const results = [];
+  const errors = [];
+  let currentQ = null;
+
+  function finalizeQuestion() {
+    if (!currentQ) return;
+    
+    currentQ.text = currentQ.text.trim();
+    if (currentQ.explanation) currentQ.explanation = currentQ.explanation.trim();
+    if (currentQ.topic) currentQ.topic = currentQ.topic.trim();
+
+    if (!currentQ.text) {
+       errors.push(`A block was skipped because it lacked recognizable question text.`);
+    } else if (currentQ.options.length < 2) {
+       errors.push(`Question "${currentQ.text.substring(0, 30)}...": Skipped because it didn't have enough clear options (found ${currentQ.options.length}).`);
+    } else if (currentQ.correctIndex === null) {
+       errors.push(`Question "${currentQ.text.substring(0, 30)}...": Skipped because no valid answer was found.`);
+    } else {
+       const qToSave = {
+         text: currentQ.text,
+         options: currentQ.options.map(o => o.trim()),
+         correctIndex: currentQ.correctIndex,
+         createdAt: serverTimestamp()
+       };
+       if (currentQ.topic) qToSave.topic = currentQ.topic;
+       if (currentQ.explanation) qToSave.explanation = currentQ.explanation;
+       results.push(qToSave);
+    }
+    currentQ = null;
+  }
+
+  function startNewQuestion(firstLine) {
+    finalizeQuestion(); 
+    const cleanText = firstLine.replace(/^(?:q(?:ue(?:stion)?)?\.?\s*(?:no\.?)?\s*\d+|(?:\(\d+\))|\d+[\.\)\-:])\s*/i, "");
+    currentQ = {
+      text: cleanText,
+      options: [],
+      correctIndex: null,
+      topic: null,
+      explanation: null,
+      state: 'QUESTION'
+    };
+  }
+
+  const optionRegex = /^(?:[*\-\+]\s*)?(?:([A-Da-d])[\.\:\-\)]|(?:\(([A-Da-d])\)))\s+(.+)$/i;
+  const ansRegexLetter = /^(?:correct\s*)?(?:answer|ans|key|correct option|correct)[\.\:\=\-]?\s*\(?([A-Da-d])\)?(?:\s|$)/i;
+  const ansRegexText = /^(?:correct\s*)?(?:answer|ans|key|correct option|correct)[\.\:\=\-]?\s*(.+)$/i;
+  const topicRegex = /^topic\s*[\.\:\=\-]\s*(.+)$/i;
+  const expRegex = /^explanation\s*[\.\:\=\-]\s*(.+)$/i;
+  const metaRegex = /^(?:source|reference|difficulty|level|chapter|category|tags|notes|bloom's taxonomy)\s*[\.\:\=\-]\s*(.+)$/i;
+  const newQMarkerRegex = /^(?:q(?:ue(?:stion)?)?\.?\s*(?:no\.?)?\s*\d+|(?:\(\d+\))|\d+[\.\)\-:])(?:\s+|$)/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].trim();
+    if (!line) continue;
+
+    if (newQMarkerRegex.test(line)) {
+        if (!currentQ || currentQ.options.length > 0 || currentQ.correctIndex !== null) {
+            startNewQuestion(line);
+            continue;
+        }
+    }
+
+    if (!currentQ) {
+        startNewQuestion(line);
+        continue;
+    }
+
+    const optMatch = line.match(optionRegex);
+    const ansLetterMatch = line.match(ansRegexLetter);
+    const ansTextMatch = !ansLetterMatch ? line.match(ansRegexText) : null;
+    const topicMatch = line.match(topicRegex);
+    const expMatch = line.match(expRegex);
+    const metaMatch = line.match(metaRegex);
+    const isRecognizedTag = optMatch || ansLetterMatch || ansTextMatch || topicMatch || expMatch || metaMatch;
+
+    if (currentQ.correctIndex !== null && !isRecognizedTag && currentQ.state !== 'EXPLANATION') {
+        startNewQuestion(line);
+        continue;
+    }
+
+    if (expMatch) {
+        currentQ.explanation = expMatch[1];
+        currentQ.state = 'EXPLANATION';
+        continue;
+    }
+
+    if (topicMatch) {
+        currentQ.topic = topicMatch[1];
+        currentQ.state = 'METADATA';
+        continue;
+    }
+
+    if (metaMatch) {
+        currentQ.state = 'METADATA';
+        continue;
+    }
+
+    if (ansLetterMatch) {
+        const letter = ansLetterMatch[1].toUpperCase();
+        currentQ.correctIndex = letter.charCodeAt(0) - 65;
+        currentQ.state = 'METADATA';
+        continue;
+    }
+
+    if (ansTextMatch && currentQ.correctIndex === null) {
+        const textAns = ansTextMatch[1].trim().toLowerCase();
+        let found = -1;
+        for (let o = 0; o < currentQ.options.length; o++) {
+            let optClean = currentQ.options[o].toLowerCase().replace(/^[*\-\+]\s*/, '').trim();
+            if (optClean === textAns || textAns.includes(optClean)) {
+                found = o; break;
+            }
+        }
+        if (found !== -1) currentQ.correctIndex = found;
+        currentQ.state = 'METADATA';
+        continue;
+    }
+
+    if (optMatch && currentQ.state !== 'METADATA' && currentQ.state !== 'EXPLANATION') {
+        currentQ.options.push(optMatch[3]); 
+        currentQ.state = 'OPTIONS';
+        continue;
+    }
+
+    if (currentQ.state === 'QUESTION') {
+        currentQ.text += (currentQ.text ? "\n" : "") + line;
+    } else if (currentQ.state === 'OPTIONS') {
+         if (currentQ.options.length > 0) {
+             currentQ.options[currentQ.options.length - 1] += "\n" + line;
+         }
+    } else if (currentQ.state === 'EXPLANATION') {
+         currentQ.explanation += "\n" + line;
+    }
+  }
+
+  finalizeQuestion();
+  return { results, errors };
+}
+
+// ============================================================
+// Preview and Import Workflow
+// ============================================================
+let pendingImport = [];
+
+document.getElementById("parse-btn").addEventListener("click", () => {
+  const subjectId = document.getElementById("target-subject").value;
+  const raw = document.getElementById("raw-questions").value;
+  const reportEl = document.getElementById("parse-report");
+  const confirmBtn = document.getElementById("confirm-import-btn");
+
+  if (!subjectId) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Create a test container first.</span>`; return; }
+  if (!raw.trim()) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Paste or upload some questions first.</span>`; return; }
+
+  const { results, errors } = parseQuestions(raw);
+  pendingImport = results; 
+
+  let html = `<div style="padding: 15px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; margin-top: 15px;">
+                <h3 style="margin-bottom: 10px; font-size: 1.1rem;">Preview Summary</h3>
+                <p style="margin: 0 0 5px 0;"><strong>Valid questions found:</strong> <span style="color:var(--success); font-weight:bold;">${results.length}</span></p>
+                <p style="margin: 0 0 10px 0;"><strong>Needs review / Skipped:</strong> <span style="color:var(--danger); font-weight:bold;">${errors.length}</span></p>`;
+
+  if (errors.length > 0) {
+    let errorList = errors.map(e => `<li>${escapeHtml(e)}</li>`).join("");
+    html += `<div style="background: rgba(220, 38, 38, 0.1); color: var(--danger); padding: 10px; border-radius: 6px; font-size: 0.9rem; margin-bottom: 10px;">
+               <strong>Errors to fix:</strong>
+               <ul style="margin: 5px 0 0 20px;">${errorList}</ul>
+             </div>`;
+  }
+
+  if (results.length > 0) {
+    let optionsHtml = results[0].options.map((opt, i) => {
+        let isCorrect = (i === results[0].correctIndex) ? '✅ <em>(Correct)</em>' : '';
+        return `<li style="margin-bottom:5px;">${String.fromCharCode(65+i)}) ${escapeHtml(opt)} ${isCorrect}</li>`;
+    }).join('');
+
+    let topicHtml = results[0].topic ? `<p style="margin:10px 0 0 0;"><strong>Topic:</strong> ${escapeHtml(results[0].topic)}</p>` : '';
+    let expHtml = results[0].explanation ? `<p style="margin:10px 0 0 0;"><strong>Explanation:</strong> ${escapeHtml(results[0].explanation)}</p>` : '';
+
+    html += `<details style="cursor:pointer; font-size: 0.9rem; color: var(--text-muted); margin-top: 10px;">
+               <summary>Click to view the first parsed question as a sample</summary>
+               <div style="padding: 15px; border: 1px dashed var(--line-strong); margin-top: 10px; color: var(--text); text-align: left; background: var(--bg);">
+                 <p style="margin-top:0;"><strong>Q:</strong> ${escapeHtml(results[0].text)}</p>
+                 <ul style="margin:10px 0 0 20px;">
+                   ${optionsHtml}
+                 </ul>
+                 ${topicHtml}
+                 ${expHtml}
+               </div>
+             </details>`;
+             
+    confirmBtn.classList.remove("hidden");
+    confirmBtn.innerText = `Confirm Import (${results.length} questions)`;
+  } else {
+    confirmBtn.classList.add("hidden");
+  }
+
+  html += `</div>`;
+  reportEl.innerHTML = html;
+});
+
+document.getElementById("confirm-import-btn").addEventListener("click", async () => {
+  const subjectId = document.getElementById("target-subject").value;
+  const reportEl = document.getElementById("parse-report");
+  const confirmBtn = document.getElementById("confirm-import-btn");
+  const parseBtn = document.getElementById("parse-btn");
+
+  confirmBtn.disabled = true;
+  parseBtn.disabled = true;
+  confirmBtn.innerText = "Importing...";
+
+  try {
+    await Promise.all(pendingImport.map(q => addDoc(collection(db, "subjects", subjectId, "questions"), q)));
+    reportEl.innerHTML = `<div style="padding: 15px; background: rgba(16, 185, 129, 0.1); color: var(--success); border-radius: 8px; margin-top: 15px; font-weight: bold; text-align:center;">
+      ✅ Successfully imported ${pendingImport.length} questions!
+    </div>`;
+    document.getElementById("raw-questions").value = "";
+    document.getElementById("upload-status").textContent = ""; // Clear file upload text
+    pendingImport = [];
+    confirmBtn.classList.add("hidden");
+    await loadSubjects();
+  } catch (err) {
+    reportEl.innerHTML += `<div class="auth-error" style="margin-top:10px; color: var(--danger);">Upload failed. Please try again.</div>`;
+  } finally {
+    confirmBtn.disabled = false;
+    parseBtn.disabled = false;
+  }
+});
+
+document.getElementById("back-to-dashboard").addEventListener("click", () => {
+  showView("view-app");
+  loadSubjects();
+});
+
+// ============================================================
+// Test-taking engine
+// ============================================================
+let currentSubject = null;
+let currentQuestions = [];
+let answers = {};
+let marked = new Set();
+let visited = new Set();
+let currentIndex = 0;
+let timerInterval = null;
+let endTime = 0;
+let isTestActive = false;
+
+async function startTest(subjectId) {
+  currentSubject = subjectsCache.find(s => s.id === subjectId);
+  if (!currentSubject) return;
+
+  const snap = await getDocs(collection(db, "subjects", subjectId, "questions"));
+  currentQuestions = [];
+  snap.forEach(d => currentQuestions.push({ id: d.id, ...d.data() }));
+  if (currentQuestions.length === 0) return;
+
+  answers = {};
+  marked = new Set();
+  visited = new Set();
+  currentIndex = 0;
+
+  document.getElementById("test-subject-name").textContent = `${currentSubject.subject} - ${currentSubject.testName}`;
+  const durationMin = currentSubject.durationMinutes || 30;
+  endTime = Date.now() + durationMin * 60 * 1000;
+  isTestActive = true;
+
+  showView("view-test");
+  renderQuestion();
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(tickTimer, 250);
+  tickTimer();
+}
+
+function tickTimer() {
+  const remainingMs = endTime - Date.now();
+  const timerEl = document.getElementById("timer");
+  if (remainingMs <= 0) {
+    timerEl.textContent = "00:00";
+    clearInterval(timerInterval);
+    submitTest();
+    return;
+  }
+  const totalSec = Math.floor(remainingMs / 1000);
+  const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
+  const ss = String(totalSec % 60).padStart(2, "0");
+  timerEl.textContent = `${mm}:${ss}`;
+  timerEl.classList.toggle("low", totalSec < 5 * 60);
+}
+
+function renderQuestion() {
+  const q = currentQuestions[currentIndex];
+  visited.add(q.id);
+
+  document.getElementById("q-count").textContent = `Q ${currentIndex + 1} / ${currentQuestions.length}`;
+  document.getElementById("btn-prev").disabled = currentIndex === 0;
+  document.getElementById("q-text").textContent = q.text;
+
+  const topicEl = document.getElementById("q-topic");
+  if (q.topic) { topicEl.textContent = q.topic; topicEl.classList.remove("hidden"); }
+  else { topicEl.classList.add("hidden"); }
+
+  const optionsEl = document.getElementById("q-options");
+  optionsEl.innerHTML = "";
+  q.options.forEach((opt, i) => {
+    const row = document.createElement("div");
+    row.className = "option-row" + (answers[q.id] === i ? " selected" : "");
+    row.innerHTML = `<div class="option-marker"></div><div>${escapeHtml(opt)}</div>`;
+    row.addEventListener("click", () => {
+      answers[q.id] = i;
+      renderQuestion();
+    });
+    optionsEl.appendChild(row);
+  });
+
+  renderPalette();
+}
+
+function renderPalette() {
+  const grid = document.getElementById("palette-grid");
+  grid.innerHTML = "";
+  currentQuestions.forEach((q, i) => {
+    const btn = document.createElement("button");
+    const isAnswered = answers[q.id] !== undefined;
+    const isMarked = marked.has(q.id);
+    const isVisited = visited.has(q.id);
+    let cls = "palette-btn";
+    if (i === currentIndex) cls += " current";
+    if (isMarked && isAnswered) cls += " marked marked-answered";
+    else if (isMarked) cls += " marked";
+    else if (isAnswered) cls += " answered";
+    else if (isVisited) cls += " not-answered";
+    btn.className = cls;
+    btn.textContent = i + 1;
+    btn.addEventListener("click", () => { currentIndex = i; renderQuestion(); });
+    grid.appendChild(btn);
+  });
+}
+
+function goNext() {
+  if (currentIndex < currentQuestions.length - 1) currentIndex++;
+  renderQuestion();
+}
+function goPrev() {
+  if (currentIndex > 0) currentIndex--;
+  renderQuestion();
+}
+
+document.getElementById("btn-prev").addEventListener("click", goPrev);
+document.getElementById("btn-save-next").addEventListener("click", goNext);
+document.getElementById("btn-mark-review").addEventListener("click", () => {
+  marked.add(currentQuestions[currentIndex].id);
+  goNext();
+});
+document.getElementById("btn-clear").addEventListener("click", () => {
+  delete answers[currentQuestions[currentIndex].id];
+  renderQuestion();
+});
+document.getElementById("btn-submit-test").addEventListener("click", () => {
+  if (confirm("Submit the test now? You can't change answers after this.")) {
+    clearInterval(timerInterval);
+    submitTest();
+  }
+});
+
+async function submitTest() {
+  isTestActive = false; 
+  let correct = 0, wrong = 0, unattempted = 0;
+  const topicStats = {};
+  const reviewData = [];
+
+  currentQuestions.forEach(q => {
+    const sel = answers[q.id];
+    const isAnswered = sel !== undefined;
+    const isCorrect = isAnswered && sel === q.correctIndex;
+    if (!isAnswered) unattempted++;
+    else if (isCorrect) correct++;
+    else wrong++;
+
+    if (q.topic) {
+      topicStats[q.topic] = topicStats[q.topic] || { correct: 0, total: 0 };
+      topicStats[q.topic].total++;
+      if (isCorrect) topicStats[q.topic].correct++;
+    }
+    reviewData.push({ ...q, selected: sel, isAnswered, isCorrect });
+  });
+
+  const total = currentQuestions.length;
+
+  try {
+    await addDoc(collection(db, "attempts"), {
+      uid: auth.currentUser.uid,
+      userEmail: auth.currentUser.email,
+      subjectId: currentSubject.id,
+      subjectName: currentSubject.testName || currentSubject.name,
+      correct, wrong, unattempted, total,
+      topicStats,
+      submittedAt: serverTimestamp()
+    });
+  } catch (e) {
+    console.error("Could not save attempt:", e);
+  }
+
+  renderResults({ correct, wrong, unattempted, total, topicStats, reviewData });
+}
+
+// ============================================================
+// Results
+// ============================================================
+function renderResults(r) {
+  document.getElementById("results-subject-name").textContent = currentSubject.testName || currentSubject.name;
+  const pct = r.total > 0 ? Math.round((r.correct / r.total) * 100) : 0;
+  document.getElementById("results-meta").textContent = `${r.correct} of ${r.total} correct`;
+
+  document.getElementById("results-summary").innerHTML = `
+    <div class="result-stat"><div class="num">${pct}%</div><div class="label">Score</div></div>
+    <div class="result-stat"><div class="num" style="color:var(--success)">${r.correct}</div><div class="label">Correct</div></div>
+    <div class="result-stat"><div class="num" style="color:var(--danger)">${r.wrong}</div><div class="label">Wrong</div></div>
+    <div class="result-stat"><div class="num" style="color:var(--text-muted)">${r.unattempted}</div><div class="label">Unattempted</div></div>
+  `;
+
+  const topicKeys = Object.keys(r.topicStats);
+  const topicBarsEl = document.getElementById("topic-bars");
+  if (topicKeys.length === 0) {
+    topicBarsEl.innerHTML = "";
+  } else {
+    topicBarsEl.innerHTML = `<h3 style="margin-bottom:14px;">By topic</h3>` + topicKeys.map(topic => {
+      const t = r.topicStats[topic];
+      const w = t.total > 0 ? Math.round((t.correct / t.total) * 100) : 0;
+      return `
+        <div class="topic-row">
+          <div>${escapeHtml(topic)}</div>
+          <div class="topic-track"><div class="topic-fill" style="width:${w}%"></div></div>
+          <div style="text-align:right;color:var(--text-muted);">${t.correct}/${t.total}</div>
+        </div>`;
+    }).join("");
+  }
+
+  const reviewEl = document.getElementById("review-list");
+  let reviewHtmlList = r.reviewData.map(q => {
+    const cls = !q.isAnswered ? "skipped" : (q.isCorrect ? "right" : "wrong");
+    const yourAnswer = q.isAnswered ? q.options[q.selected] : "Not attempted";
+    
+    let correctString = !q.isCorrect ? `<div class="review-answer correct-text">Correct answer: ${escapeHtml(q.options[q.correctIndex])}</div>` : "";
+    let expString = q.explanation ? `<div class="review-answer" style="color:var(--text-muted);">${escapeHtml(q.explanation)}</div>` : "";
+
+    return `
+      <div class="review-item ${cls}">
+        <div>${escapeHtml(q.text)}</div>
+        <div class="review-answer ${q.isAnswered ? (q.isCorrect ? "correct-text" : "wrong-text") : ""}">Your answer: ${escapeHtml(yourAnswer)}</div>
+        ${correctString}
+        ${expString}
+      </div>`;
+  });
+  
+  reviewEl.innerHTML = reviewHtmlList.join("");
+  showView("view-results");
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = String(str);
+  return div.innerHTML;
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && isTestActive) {
+    alert("Anti-Cheating Alert: You left the test tab! Your test has been automatically submitted.");
+    clearInterval(timerInterval);
+    submitTest();
+  }
+});
+
+const homeLink = document.getElementById("home-link");
+if (homeLink) {
+  homeLink.addEventListener("click", () => {
+    if (!auth.currentUser) return; 
+    if (isTestActive) {
+      if (confirm("Warning: You are in the middle of a test. If you go to the Dashboard, your test will be automatically submitted. Continue?")) {
+        clearInterval(timerInterval);
+        submitTest();
+      }
+    } else {
+      showView("view-app");
+      loadSubjects();
+    }
+  });
+}
