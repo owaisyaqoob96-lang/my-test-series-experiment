@@ -11,7 +11,7 @@ import {
 const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
 import {
   getFirestore, collection, addDoc, getDocs, getCountFromServer,
-  serverTimestamp, deleteDoc, doc, updateDoc
+  serverTimestamp, deleteDoc, doc, updateDoc, query, where
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -281,7 +281,7 @@ window.goSubjectFolder = function() { navType = null; renderTestList(); };
 window.openSubject = function(sub) { navSubject = sub; renderTestList(); };
 window.openType = function(typ) { navType = typ; renderTestList(); };
 
-function renderTestList() {
+async function renderTestList() {
   const listEl = document.getElementById("test-list");
   const breadcrumb = document.getElementById("dashboard-breadcrumb");
   listEl.innerHTML = "";
@@ -327,30 +327,51 @@ function renderTestList() {
       return;
     }
 
-    tests.forEach(t => {
+    for (const t of tests) {
       const row = document.createElement("div");
       row.className = "test-row";
       row.style.gridColumn = "1 / -1"; 
-      
+
       const hasQuestions = (t.questionCount || 0) > 0;
-      
+
       const editBtn = isAdmin ? `<button class="btn btn-sm edit-btn" style="background-color: var(--primary); color: white; margin-left: 8px; border: none;" data-edit-id="${t.id}">Edit</button>` : "";
       const deleteBtn = isAdmin ? `<button class="btn btn-sm delete-btn" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${t.id}">Delete</button>` : "";
+
+      let lastAttempt = null;
+      try {
+        const attemptSnap = await getDocs(query(
+          collection(db, "attempts"),
+          where("uid", "==", auth.currentUser.uid),
+          where("subjectId", "==", t.id)
+        ));
+        attemptSnap.forEach(d => {
+          const a = d.data();
+          const ms = a.submittedAt && a.submittedAt.toMillis ? a.submittedAt.toMillis() : 0;
+          if (!lastAttempt || ms > lastAttempt._ms) lastAttempt = { ...a, _ms: ms };
+        });
+      } catch (e) { /* no prior attempt, or not readable yet — treat as unattempted */ }
+
+      const pct = lastAttempt && lastAttempt.total > 0 ? Math.round((lastAttempt.correct / lastAttempt.total) * 100) : null;
+      const attemptBadge = lastAttempt
+        ? `<div class="test-row-meta" style="color:var(--success);margin-top:4px;">Attempted · last score ${pct}%</div>`
+        : "";
+      const startLabel = hasQuestions ? (lastAttempt ? "Retake test" : "Start test") : "No questions yet";
 
       row.innerHTML = `
         <div class="test-row-info">
           <h3>${escapeHtml(t.testName)}</h3>
           <div class="test-row-meta">${t.questionCount || 0} questions · ${t.durationMinutes || 30} min</div>
+          ${attemptBadge}
         </div>
         <div style="display: flex; align-items: center;">
           <button class="btn btn-primary btn-sm start-btn" ${hasQuestions ? "" : "disabled"} data-subject-id="${t.id}">
-            ${hasQuestions ? "Start test" : "No questions yet"}
+            ${startLabel}
           </button>
           ${editBtn}${deleteBtn}
         </div>
       `;
       listEl.appendChild(row);
-    });
+    }
 
     listEl.querySelectorAll(".start-btn").forEach(btn => {
       btn.addEventListener("click", () => startTest(btn.getAttribute("data-subject-id")));
@@ -832,6 +853,7 @@ function renderQuestion() {
   visited.add(q.id);
 
   document.getElementById("q-count").textContent = `Q ${currentIndex + 1} / ${currentQuestions.length}`;
+  document.getElementById("btn-prev").disabled = currentIndex === 0;
   document.getElementById("q-text").textContent = q.text;
 
   const topicEl = document.getElementById("q-topic");
@@ -879,7 +901,12 @@ function goNext() {
   if (currentIndex < currentQuestions.length - 1) currentIndex++;
   renderQuestion();
 }
+function goPrev() {
+  if (currentIndex > 0) currentIndex--;
+  renderQuestion();
+}
 
+document.getElementById("btn-prev").addEventListener("click", goPrev);
 document.getElementById("btn-save-next").addEventListener("click", goNext);
 document.getElementById("btn-mark-review").addEventListener("click", () => {
   marked.add(currentQuestions[currentIndex].id);
