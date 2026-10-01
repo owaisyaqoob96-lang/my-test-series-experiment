@@ -238,6 +238,14 @@ onAuthStateChanged(auth, async () => {
 // ============================================================
 // Dashboard: Folders, Tests & Admin Panel (DRAG AND DROP)
 // ============================================================
+// CRITICAL BUG FIX: Bulletproof time parser to stop the "Loading" crash
+function safeTime(obj) {
+  if (!obj) return 0;
+  if (typeof obj.toMillis === 'function') return obj.toMillis();
+  if (typeof obj.seconds === 'number') return obj.seconds * 1000;
+  return 0;
+}
+
 let subjectsCache = [];
 let navSubject = null; 
 let navType = null;    
@@ -265,10 +273,10 @@ async function loadSubjects() {
     });
   });
 
-  // Sort tests by admin-defined 'order', falling back to creation date
+  // Safely sort tests by admin-defined 'order', falling back to creation date
   subjectsCache.sort((a, b) => {
-    if(a.order !== b.order) return a.order - b.order;
-    return (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0);
+    if(a.order !== b.order) return (a.order || 0) - (b.order || 0);
+    return safeTime(a.createdAt) - safeTime(b.createdAt);
   });
 
   for (const s of subjectsCache) {
@@ -398,7 +406,7 @@ async function renderTestList() {
         ));
         attemptSnap.forEach(d => {
           const a = d.data();
-          const ms = a.submittedAt && a.submittedAt.toMillis ? a.submittedAt.toMillis() : 0;
+          const ms = safeTime(a.submittedAt);
           if (!lastAttempt || ms > lastAttempt._ms) lastAttempt = { ...a, _ms: ms };
         });
       } catch (e) { /* no prior attempt */ }
@@ -470,13 +478,20 @@ async function executeReorder(draggedId, targetId) {
   
   if (oldIndex === -1 || newIndex === -1) return;
   
-  // Rearrange array
+  // Rearrange array locally
   const [movedItem] = testsInFolder.splice(oldIndex, 1);
   testsInFolder.splice(newIndex, 0, movedItem);
   
-  // Update UI immediately for responsiveness
+  // Assign new order values
   testsInFolder.forEach((t, i) => t.order = i);
-  renderTestList();
+  
+  // Re-sort the main cache so renderTestList picks up the new order safely
+  subjectsCache.sort((a, b) => {
+    if(a.order !== b.order) return (a.order || 0) - (b.order || 0);
+    return safeTime(a.createdAt) - safeTime(b.createdAt);
+  });
+
+  renderTestList(); // Instantly update UI!
   
   // Sync to database
   const promises = testsInFolder.map((t, i) => {
@@ -610,7 +625,7 @@ async function loadManageQuestionsList() {
   let questions = [];
   snap.forEach(d => questions.push({ id: d.id, ...d.data() }));
   
-  questions.sort((a,b) => (a.createdAt?.toMillis()||0) - (b.createdAt?.toMillis()||0));
+  questions.sort((a,b) => safeTime(a.createdAt) - safeTime(b.createdAt));
 
   if (questions.length === 0) {
     listEl.innerHTML = `<div class="test-row-empty" style="border: 1px dashed var(--line-strong); border-radius: 8px;">No questions in this test yet. Use the box below to add some.</div>`;
