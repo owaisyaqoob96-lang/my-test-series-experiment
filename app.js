@@ -536,33 +536,124 @@ async function openEditModal(testId) {
 
 async function renderEditQuestionsList(testId) {
   const listEl = document.getElementById("edit-questions-list");
-  listEl.innerHTML = `<div style="padding:14px;color:var(--text-muted);font-size:13px;">Loading…</div>`;
+  const countEl = document.getElementById("edit-q-count");
+  listEl.innerHTML = '<div style="padding:14px;color:var(--text-muted);font-size:13px;">Loading\u2026</div>';
+
   const snap = await getDocs(collection(db, "subjects", testId, "questions"));
   const qs = [];
   snap.forEach(d => qs.push({ id: d.id, ...d.data() }));
 
+  if (countEl) countEl.textContent = "(" + qs.length + ")";
+
   if (qs.length === 0) {
-    listEl.innerHTML = `<div style="padding:14px;color:var(--text-muted);font-size:13px;">No questions yet.</div>`;
+    listEl.innerHTML = '<div style="padding:14px;color:var(--text-muted);font-size:13px;">No questions yet. Use \u201cAdd New Question\u201d below.</div>';
     return;
   }
 
-  listEl.innerHTML = qs.map((q, i) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;${i > 0 ? "border-top:1px solid var(--line);" : ""}">
-      <div style="font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(q.text)}</div>
-      <button class="btn btn-sm del-question-btn" style="background-color: var(--danger); color: white; border: none; flex-shrink:0;" data-q-id="${q.id}">Delete</button>
-    </div>
-  `).join("");
+  // Build HTML with empty inputs; values are set programmatically below for XSS safety
+  listEl.innerHTML = qs.map((q, i) => {
+    const correctIdx = q.correctIndex != null ? q.correctIndex : 0;
+    let selectHtml = "";
+    for (let oi = 0; oi < 4; oi++) {
+      selectHtml += '<option value="' + oi + '"' + (oi === correctIdx ? ' selected' : '') + '>' + String.fromCharCode(65 + oi) + '</option>';
+    }
+    return '<details class="eq-card" data-qid="' + q.id + '">' +
+      '<summary>' +
+        '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">Q' + (i + 1) + '. ' + escapeHtml(q.text) + '</span>' +
+        '<span style="flex-shrink:0;font-size:12px;color:var(--text-faint);">click to edit</span>' +
+      '</summary>' +
+      '<div class="eq-body">' +
+        '<div class="field"><label>Question Text</label>' +
+          '<textarea class="eq-text"></textarea></div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+          '<div class="field"><label>Option A</label><input type="text" class="eq-opt" data-idx="0" /></div>' +
+          '<div class="field"><label>Option B</label><input type="text" class="eq-opt" data-idx="1" /></div>' +
+          '<div class="field"><label>Option C</label><input type="text" class="eq-opt" data-idx="2" /></div>' +
+          '<div class="field"><label>Option D</label><input type="text" class="eq-opt" data-idx="3" /></div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+          '<div class="field"><label>Correct Answer</label>' +
+            '<select class="eq-correct" style="width:100%;">' + selectHtml + '</select></div>' +
+          '<div class="field"><label>Topic (optional)</label><input type="text" class="eq-topic" /></div>' +
+        '</div>' +
+        '<div class="field"><label>Explanation (optional)</label>' +
+          '<textarea class="eq-explanation"></textarea></div>' +
+        '<div class="eq-actions">' +
+          '<button class="btn btn-primary btn-sm eq-save-btn">Save Question</button>' +
+          '<button class="btn btn-sm eq-delete-btn" style="background-color:var(--danger);color:white;border:none;">Delete Question</button>' +
+          '<span class="eq-status" style="font-size:13px;"></span>' +
+        '</div>' +
+      '</div>' +
+    '</details>';
+  }).join("");
 
-  listEl.querySelectorAll(".del-question-btn").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      if (!confirm("Delete this question? This cannot be undone.")) return;
-      btn.disabled = true; btn.textContent = "...";
+  // Populate field values programmatically (safe against XSS in attribute values)
+  const cards = listEl.querySelectorAll(".eq-card");
+  qs.forEach((q, i) => {
+    const card = cards[i];
+    card.querySelector(".eq-text").value = q.text || "";
+    const optInputs = card.querySelectorAll(".eq-opt");
+    (q.options || []).forEach((opt, oi) => { if (optInputs[oi]) optInputs[oi].value = opt; });
+    card.querySelector(".eq-topic").value = q.topic || "";
+    card.querySelector(".eq-explanation").value = q.explanation || "";
+  });
+
+  // Attach per-question Save and Delete handlers
+  cards.forEach(card => {
+    const saveBtn = card.querySelector(".eq-save-btn");
+    saveBtn.addEventListener("click", async () => {
+      const qId = card.getAttribute("data-qid");
+      const statusEl = card.querySelector(".eq-status");
+      const text = card.querySelector(".eq-text").value.trim();
+      const optInputs = card.querySelectorAll(".eq-opt");
+      const allOpts = [...optInputs].map(inp => inp.value.trim());
+      const nonEmptyOpts = allOpts.filter(o => o);
+      const correctIndex = parseInt(card.querySelector(".eq-correct").value, 10);
+      const topic = card.querySelector(".eq-topic").value.trim();
+      const explanation = card.querySelector(".eq-explanation").value.trim();
+
+      if (!text) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Question text is required."; return; }
+      if (nonEmptyOpts.length < 2) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "At least 2 options are required."; return; }
+      let seenEmpty = false;
+      for (let oi = 0; oi < 4; oi++) {
+        if (!allOpts[oi]) seenEmpty = true;
+        else if (seenEmpty) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Fill options from A onwards without gaps."; return; }
+      }
+      if (correctIndex >= nonEmptyOpts.length) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Correct answer exceeds the number of options."; return; }
+
+      saveBtn.disabled = true;
+      statusEl.style.color = "var(--text-muted)";
+      statusEl.textContent = "Saving\u2026";
       try {
-        await deleteDoc(doc(db, "subjects", testId, "questions", btn.getAttribute("data-q-id")));
+        const updateData = { text, options: nonEmptyOpts, correctIndex, topic: topic || "", explanation: explanation || "" };
+        await updateDoc(doc(db, "subjects", testId, "questions", qId), updateData);
+        statusEl.style.color = "var(--success)";
+        statusEl.textContent = "Saved!";
+        const summarySpan = card.querySelector("summary span:first-child");
+        if (summarySpan) {
+          const idx = [...cards].indexOf(card);
+          summarySpan.innerHTML = "Q" + (idx + 1) + ". " + escapeHtml(text);
+        }
+        setTimeout(() => { statusEl.textContent = ""; }, 2000);
+      } catch (e) {
+        statusEl.style.color = "var(--danger)";
+        statusEl.textContent = "Error: " + e.message;
+      } finally { saveBtn.disabled = false; }
+    });
+
+    const delBtn = card.querySelector(".eq-delete-btn");
+    delBtn.addEventListener("click", async () => {
+      if (!confirm("Delete this question? This cannot be undone.")) return;
+      const qId = card.getAttribute("data-qid");
+      delBtn.disabled = true;
+      delBtn.textContent = "Deleting\u2026";
+      try {
+        await deleteDoc(doc(db, "subjects", testId, "questions", qId));
         await renderEditQuestionsList(testId);
       } catch (e) {
         alert("Couldn't delete. Please try again.");
-        btn.disabled = false; btn.textContent = "Delete";
+        delBtn.disabled = false;
+        delBtn.textContent = "Delete Question";
       }
     });
   });
@@ -600,6 +691,69 @@ document.getElementById("save-edit-btn").addEventListener("click", async () => {
   } finally {
     btn.disabled = false;
     btn.textContent = "Save Changes";
+  }
+});
+
+// ---------------- ADMIN: Add Question Handler ----------------
+document.getElementById("add-q-btn").addEventListener("click", async () => {
+  const testId = document.getElementById("edit-test-id").value;
+  const statusEl = document.getElementById("add-q-status");
+  const addBtn = document.getElementById("add-q-btn");
+  const text = document.getElementById("add-q-text").value.trim();
+  const allOpts = [
+    document.getElementById("add-q-optA").value.trim(),
+    document.getElementById("add-q-optB").value.trim(),
+    document.getElementById("add-q-optC").value.trim(),
+    document.getElementById("add-q-optD").value.trim()
+  ];
+  const nonEmptyOpts = allOpts.filter(o => o);
+  const correctIndex = parseInt(document.getElementById("add-q-correct").value, 10);
+  const topic = document.getElementById("add-q-topic").value.trim();
+  const explanation = document.getElementById("add-q-explanation").value.trim();
+
+  // Validation
+  if (!testId) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "No test selected."; return; }
+  if (!text) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Question text is required."; return; }
+  if (nonEmptyOpts.length < 2) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "At least 2 options are required."; return; }
+  let seenEmpty = false;
+  for (let oi = 0; oi < 4; oi++) {
+    if (!allOpts[oi]) seenEmpty = true;
+    else if (seenEmpty) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Fill options from A onwards without gaps."; return; }
+  }
+  if (correctIndex >= nonEmptyOpts.length) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Correct answer exceeds the number of options."; return; }
+
+  addBtn.disabled = true;
+  statusEl.style.color = "var(--text-muted)";
+  statusEl.textContent = "Adding\u2026";
+
+  try {
+    const qData = { text, options: nonEmptyOpts, correctIndex, createdAt: serverTimestamp() };
+    if (topic) qData.topic = topic;
+    if (explanation) qData.explanation = explanation;
+
+    await addDoc(collection(db, "subjects", testId, "questions"), qData);
+
+    // Clear the form
+    document.getElementById("add-q-text").value = "";
+    document.getElementById("add-q-optA").value = "";
+    document.getElementById("add-q-optB").value = "";
+    document.getElementById("add-q-optC").value = "";
+    document.getElementById("add-q-optD").value = "";
+    document.getElementById("add-q-correct").value = "0";
+    document.getElementById("add-q-topic").value = "";
+    document.getElementById("add-q-explanation").value = "";
+
+    statusEl.style.color = "var(--success)";
+    statusEl.textContent = "Question added!";
+    setTimeout(() => { statusEl.textContent = ""; }, 2500);
+
+    // Refresh the question list and count
+    await renderEditQuestionsList(testId);
+  } catch (e) {
+    statusEl.style.color = "var(--danger)";
+    statusEl.textContent = "Error: " + e.message;
+  } finally {
+    addBtn.disabled = false;
   }
 });
 
