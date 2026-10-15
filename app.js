@@ -11,7 +11,8 @@ import {
 const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
 import {
   getFirestore, collection, addDoc, getDocs, getCountFromServer,
-  serverTimestamp, deleteDoc, doc, updateDoc, query, where, writeBatch
+  serverTimestamp, deleteDoc, doc, updateDoc, query, where, writeBatch,
+  getDoc, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
 let draggedTestId = null; // admin drag-and-drop reordering (slide-sorter style)
@@ -192,9 +193,51 @@ document.getElementById("verify-resend-btn").addEventListener("click", async () 
   }
 });
 
-function routeUser(user) {
+let currentUserProfile = null;
+
+function renderUserIdentity() {
+  const whoamiEl = document.getElementById("whoami");
+  if (!whoamiEl) return;
+  if (currentUserProfile && currentUserProfile.fullName && currentUserProfile.username) {
+    whoamiEl.textContent = `${currentUserProfile.fullName} (@${currentUserProfile.username})`;
+  } else if (auth.currentUser) {
+    whoamiEl.textContent = auth.currentUser.email;
+  } else {
+    whoamiEl.textContent = "";
+  }
+}
+
+async function loadUserProfile(user) {
+  if (!user) {
+    currentUserProfile = null;
+    renderUserIdentity();
+    renderMyExams();
+    return;
+  }
+  try {
+    const userRef = doc(db, "users", user.uid);
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+      currentUserProfile = snap.data();
+      renderUserIdentity();
+      renderMyExams();
+    } else {
+      currentUserProfile = null;
+      renderUserIdentity();
+      renderMyExams();
+      // Prompt user to complete their profile setup if they do not have one yet
+      openProfileModal(true);
+    }
+  } catch (err) {
+    console.error("Error loading user profile:", err);
+    renderUserIdentity();
+    renderMyExams();
+  }
+}
+
+async function routeUser(user) {
   if (user && user.emailVerified) {
-    document.getElementById("whoami").textContent = user.email;
+    renderUserIdentity();
     
     // Show admin panel if admin
     const isAdmin = user.uid === ADMIN_UID;
@@ -206,11 +249,16 @@ function routeUser(user) {
 
     showView("view-app");
     loadSubjects();
+    await loadUserProfile(user);
   } else if (user && !user.emailVerified) {
+    currentUserProfile = null;
+    renderUserIdentity();
     document.getElementById("verify-email-text").textContent = user.email;
     document.getElementById("verify-error").textContent = "";
     showView("view-verify");
   } else {
+    currentUserProfile = null;
+    renderUserIdentity();
     renderAuthMode();
     if (pendingNotice) showAuthNotice(pendingNotice.ok, pendingNotice.text);
     showView("view-auth");
@@ -233,8 +281,360 @@ const actionReady = (async () => {
 
 onAuthStateChanged(auth, async () => {
   await actionReady;
-  routeUser(auth.currentUser);
+  await routeUser(auth.currentUser);
 });
+
+// ============================================================
+// Central Exam Configuration (Batch 2)
+// ============================================================
+export const EXAMS_CONFIG = [
+  { id: "jkssb_faa", name: "JKSSB Finance Accounts Assistant", shortName: "JKSSB FAA" },
+  { id: "jkssb_si", name: "JKSSB Sub-Inspector", shortName: "JKSSB SI" },
+  { id: "jk_bank_po", name: "J&K Bank PO", shortName: "J&K Bank PO" },
+  { id: "ibps_po", name: "IBPS PO", shortName: "IBPS PO" },
+  { id: "upsc_cse", name: "UPSC Civil Services Examination", shortName: "UPSC CSE" },
+  { id: "jkpsc_cce", name: "JKPSC Combined Competitive Examination", shortName: "JKPSC CCE" }
+];
+
+export const VALID_EXAM_IDS = EXAMS_CONFIG.map(e => e.id);
+export const EXAMS_MAP = Object.fromEntries(EXAMS_CONFIG.map(e => [e.id, e]));
+
+let selectedExamFilter = null; // null means All Tests
+
+function renderExamSelectOptions() {
+  const newSelect = document.getElementById("new-exam-id");
+  const editSelect = document.getElementById("edit-exam-id");
+  const optionsHtml = '<option value="">None / General</option>' + 
+    EXAMS_CONFIG.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
+  if (newSelect) {
+    const prev = newSelect.value;
+    newSelect.innerHTML = optionsHtml;
+    if (prev) newSelect.value = prev;
+  }
+  if (editSelect) {
+    const prev = editSelect.value;
+    editSelect.innerHTML = optionsHtml;
+    if (prev) editSelect.value = prev;
+  }
+}
+
+function renderMyExams() {
+  const chipsContainer = document.getElementById("my-exams-chips");
+  if (!chipsContainer) return;
+
+  const targetExams = (currentUserProfile && Array.isArray(currentUserProfile.targetExams))
+    ? currentUserProfile.targetExams
+    : [];
+
+  if (targetExams.length === 0) {
+    selectedExamFilter = null;
+    chipsContainer.innerHTML = `
+      <div class="empty-exams-notice">
+        No target exams selected yet. Update your profile to choose your exams.
+      </div>
+    `;
+    return;
+  }
+
+  // Reset selected filter if user deselected that exam
+  if (selectedExamFilter && !targetExams.includes(selectedExamFilter)) {
+    selectedExamFilter = null;
+  }
+
+  let html = `
+    <button type="button" class="exam-chip ${selectedExamFilter === null ? 'active' : ''}" data-exam-id="all">
+      All Tests
+    </button>
+  `;
+
+  targetExams.forEach(examId => {
+    const exam = EXAMS_MAP[examId];
+    if (exam) {
+      const isActive = selectedExamFilter === examId ? 'active' : '';
+      html += `
+        <button type="button" class="exam-chip ${isActive}" data-exam-id="${exam.id}">
+          🎯 ${escapeHtml(exam.shortName || exam.name)}
+        </button>
+      `;
+    }
+  });
+
+  chipsContainer.innerHTML = html;
+
+  chipsContainer.querySelectorAll(".exam-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const eid = btn.getAttribute("data-exam-id");
+      if (eid === "all") {
+        selectedExamFilter = null;
+      } else {
+        selectedExamFilter = (selectedExamFilter === eid) ? null : eid;
+      }
+      navSubject = null;
+      navType = null;
+      renderMyExams();
+      renderTestList();
+    });
+  });
+}
+
+const editMyExamsBtn = document.getElementById("edit-my-exams-btn");
+if (editMyExamsBtn) {
+  editMyExamsBtn.addEventListener("click", () => {
+    openProfileModal(false);
+  });
+}
+
+// ============================================================
+// Student Profile Management (Batch 1 & 2)
+// ============================================================
+const profileModal = document.getElementById("profile-modal");
+const profileError = document.getElementById("profile-error");
+const profileSaveBtn = document.getElementById("profile-save-btn");
+const profileCancelBtn = document.getElementById("profile-cancel-btn");
+const profilePhotoInput = document.getElementById("profile-photourl");
+const profileAvatarDisplay = document.getElementById("profile-avatar-display");
+
+function updateAvatarPreview(url) {
+  if (!profileAvatarDisplay) return;
+  profileAvatarDisplay.innerHTML = "";
+  const cleanUrl = (url || "").trim();
+  if (cleanUrl && (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://") || cleanUrl.startsWith("data:image/"))) {
+    const img = document.createElement("img");
+    img.src = cleanUrl;
+    img.alt = "Avatar";
+    img.style.width = "100%";
+    img.style.height = "100%";
+    img.style.objectFit = "cover";
+    img.onerror = () => {
+      if (profileAvatarDisplay) profileAvatarDisplay.textContent = "👤";
+    };
+    profileAvatarDisplay.appendChild(img);
+  } else {
+    profileAvatarDisplay.textContent = "👤";
+  }
+}
+
+if (profilePhotoInput) {
+  profilePhotoInput.addEventListener("input", (e) => {
+    updateAvatarPreview(e.target.value);
+  });
+}
+
+function openProfileModal(isFirstTimeSetup = false) {
+  if (!profileModal) return;
+  profileError.textContent = "";
+
+  const titleEl = document.getElementById("profile-modal-title");
+  const subEl = document.getElementById("profile-modal-sub");
+  if (isFirstTimeSetup) {
+    if (titleEl) titleEl.textContent = "Complete Your Profile";
+    if (subEl) subEl.textContent = "Welcome! Please enter your full name and choose a unique username to continue.";
+  } else {
+    if (titleEl) titleEl.textContent = "Student Profile";
+    if (subEl) subEl.textContent = "Manage your student identity and account details.";
+  }
+
+  const user = auth.currentUser;
+  document.getElementById("profile-email").value = (user && user.email) || "";
+  document.getElementById("profile-fullname").value = (currentUserProfile && currentUserProfile.fullName) || "";
+  document.getElementById("profile-username").value = (currentUserProfile && currentUserProfile.username) || "";
+  document.getElementById("profile-photourl").value = (currentUserProfile && currentUserProfile.photoURL) || "";
+  document.getElementById("profile-dob").value = (currentUserProfile && currentUserProfile.dob) || "";
+  document.getElementById("profile-gender").value = (currentUserProfile && currentUserProfile.gender) || "";
+  document.getElementById("profile-bio").value = (currentUserProfile && currentUserProfile.bio) || "";
+
+  // Render Target Exams Checkboxes
+  const targetExamsContainer = document.getElementById("profile-target-exams-container");
+  if (targetExamsContainer) {
+    const userExams = (currentUserProfile && Array.isArray(currentUserProfile.targetExams)) 
+      ? currentUserProfile.targetExams 
+      : [];
+    targetExamsContainer.innerHTML = EXAMS_CONFIG.map(exam => {
+      const isChecked = userExams.includes(exam.id) ? "checked" : "";
+      return `
+        <label class="target-exam-item">
+          <input type="checkbox" class="profile-target-exam-cb" value="${exam.id}" ${isChecked} />
+          <span><strong>${escapeHtml(exam.shortName)}</strong><br/><small style="color:var(--text-muted);font-size:11.5px;">${escapeHtml(exam.name)}</small></span>
+        </label>
+      `;
+    }).join("");
+  }
+
+  updateAvatarPreview(currentUserProfile ? currentUserProfile.photoURL : "");
+
+  profileModal.classList.remove("hidden");
+}
+
+if (profileCancelBtn) {
+  profileCancelBtn.addEventListener("click", () => {
+    if (profileModal) profileModal.classList.add("hidden");
+  });
+}
+
+const profileBtn = document.getElementById("profile-btn");
+if (profileBtn) {
+  profileBtn.addEventListener("click", () => {
+    openProfileModal(false);
+  });
+}
+
+if (profileSaveBtn) {
+  profileSaveBtn.addEventListener("click", async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    profileError.textContent = "";
+
+    const rawFullName = document.getElementById("profile-fullname").value.trim();
+    const rawUsername = document.getElementById("profile-username").value.trim();
+    const photoURL = document.getElementById("profile-photourl").value.trim();
+    const dob = document.getElementById("profile-dob").value;
+    const gender = document.getElementById("profile-gender").value;
+    const bio = document.getElementById("profile-bio").value.trim();
+
+    // Validation
+    if (!rawFullName || rawFullName.length < 2) {
+      profileError.textContent = "Please enter your full name (at least 2 characters).";
+      return;
+    }
+    if (rawFullName.length > 60) {
+      profileError.textContent = "Full name cannot exceed 60 characters.";
+      return;
+    }
+
+    if (!rawUsername) {
+      profileError.textContent = "Please choose a username.";
+      return;
+    }
+    if (rawUsername.length < 3 || rawUsername.length > 25) {
+      profileError.textContent = "Username must be between 3 and 25 characters.";
+      return;
+    }
+    const usernameRegex = /^[a-zA-Z0-9_.]+$/;
+    if (!usernameRegex.test(rawUsername)) {
+      profileError.textContent = "Username can only contain letters, numbers, underscores (_), and periods (.).";
+      return;
+    }
+    if (/^[._]/.test(rawUsername) || /[._]$/.test(rawUsername)) {
+      profileError.textContent = "Username cannot start or end with an underscore or period.";
+      return;
+    }
+    if (/\s/.test(rawUsername)) {
+      profileError.textContent = "Username cannot contain spaces.";
+      return;
+    }
+
+    if (bio.length > 200) {
+      profileError.textContent = "Bio cannot exceed 200 characters.";
+      return;
+    }
+    if (photoURL) {
+      if (photoURL.length > 500) {
+        profileError.textContent = "Photo URL cannot exceed 500 characters.";
+        return;
+      }
+      if (!photoURL.startsWith("http://") && !photoURL.startsWith("https://") && !photoURL.startsWith("data:image/")) {
+        profileError.textContent = "Photo URL must begin with http://, https://, or data:image/.";
+        return;
+      }
+    }
+    const validGenders = ["", "male", "female", "other", "prefer_not_to_say"];
+    if (!validGenders.includes(gender)) {
+      profileError.textContent = "Please select a valid gender option.";
+      return;
+    }
+    if (dob) {
+      const dobDate = new Date(dob);
+      const now = new Date();
+      if (isNaN(dobDate.getTime()) || dobDate > now) {
+        profileError.textContent = "Please select a valid date of birth in the past.";
+        return;
+      }
+    }
+
+    const targetExamCbs = document.querySelectorAll(".profile-target-exam-cb");
+    const targetExams = [];
+    targetExamCbs.forEach(cb => {
+      if (cb.checked && VALID_EXAM_IDS.includes(cb.value)) {
+        targetExams.push(cb.value);
+      }
+    });
+
+    const usernameLower = rawUsername.toLowerCase();
+
+    profileSaveBtn.disabled = true;
+    profileSaveBtn.textContent = "Saving...";
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await transaction.get(userRef);
+        const existingData = userSnap.exists() ? userSnap.data() : null;
+        const oldUsernameLower = existingData ? (existingData.usernameLower || (existingData.username ? existingData.username.toLowerCase() : null)) : null;
+
+        const isUsernameChanging = !oldUsernameLower || oldUsernameLower !== usernameLower;
+        const newUsernameRef = doc(db, "usernames", usernameLower);
+        const newUsernameSnap = await transaction.get(newUsernameRef);
+
+        if (newUsernameSnap.exists()) {
+          const claimedUid = newUsernameSnap.data().uid;
+          if (claimedUid !== user.uid) {
+            throw new Error(`The username "@${rawUsername}" is already taken. Please choose another.`);
+          }
+        }
+
+        let oldUsernameRef = null;
+        let oldUsernameSnap = null;
+        if (isUsernameChanging && oldUsernameLower) {
+          oldUsernameRef = doc(db, "usernames", oldUsernameLower);
+          oldUsernameSnap = await transaction.get(oldUsernameRef);
+        }
+
+        // Writes phase (all reads are done)
+        if (oldUsernameRef && oldUsernameSnap && oldUsernameSnap.exists() && oldUsernameSnap.data().uid === user.uid) {
+          transaction.delete(oldUsernameRef);
+        }
+
+        if (isUsernameChanging || !newUsernameSnap.exists()) {
+          transaction.set(newUsernameRef, {
+            uid: user.uid,
+            updatedAt: serverTimestamp()
+          });
+        }
+
+        const profilePayload = {
+          fullName: rawFullName,
+          username: rawUsername,
+          usernameLower: usernameLower,
+          email: user.email,
+          photoURL: photoURL || "",
+          dob: dob || "",
+          gender: gender || "",
+          bio: bio || "",
+          targetExams: targetExams,
+          updatedAt: serverTimestamp()
+        };
+
+        if (!existingData) {
+          profilePayload.createdAt = serverTimestamp();
+          transaction.set(userRef, profilePayload);
+        } else {
+          transaction.update(userRef, profilePayload);
+        }
+      });
+
+      // Reload profile & update topbar
+      await loadUserProfile(user);
+      if (profileModal) profileModal.classList.add("hidden");
+    } catch (err) {
+      console.error("Profile save error detailed:", err);
+      profileError.textContent = `Save failed: ${err.code || ""} - ${err.message || "Unknown error"}`;
+    } finally {
+      profileSaveBtn.disabled = false;
+      profileSaveBtn.textContent = "Save Profile";
+    }
+  });
+}
 
 
 // ============================================================
@@ -261,6 +661,7 @@ async function loadSubjects() {
       type: data.type || "Miscellaneous",
       testName: data.testName || data.name || "Untitled Test",
       durationMinutes: data.durationMinutes || 30,
+      examId: data.examId || "",
       ...data
     });
   });
@@ -274,6 +675,7 @@ async function loadSubjects() {
     }
   }
   
+  renderExamSelectOptions();
   renderTestList();
   renderSubjectSelect();
 }
@@ -290,12 +692,23 @@ async function renderTestList() {
   
   const isAdmin = auth.currentUser && auth.currentUser.uid === ADMIN_UID;
 
+  const filteredCache = selectedExamFilter
+    ? subjectsCache.filter(s => s.examId === selectedExamFilter)
+    : subjectsCache;
+
+  const filterBadgeHtml = selectedExamFilter && EXAMS_MAP[selectedExamFilter]
+    ? ` &nbsp;<span style="font-size:12px;color:var(--primary);font-weight:normal;">[${escapeHtml(EXAMS_MAP[selectedExamFilter].shortName || EXAMS_MAP[selectedExamFilter].name)}]</span>`
+    : "";
+
   if (!navSubject) {
-    breadcrumb.innerHTML = `📁 All Exams`;
-    const uniqueSubjects = [...new Set(subjectsCache.map(s => s.subject))];
+    breadcrumb.innerHTML = `📁 All Exams${filterBadgeHtml}`;
+    const uniqueSubjects = [...new Set(filteredCache.map(s => s.subject))];
     
     if (uniqueSubjects.length === 0) {
-      listEl.innerHTML = `<div class="test-row-empty">No tests created yet.</div>`;
+      const emptyMsg = selectedExamFilter
+        ? "No tests available yet for this target exam."
+        : "No tests created yet.";
+      listEl.innerHTML = `<div class="test-row-empty">${emptyMsg}</div>`;
       return;
     }
     
@@ -308,9 +721,14 @@ async function renderTestList() {
     });
   } 
   else if (!navType) {
-    breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span> > ${escapeHtml(navSubject)}`;
-    const uniqueTypes = [...new Set(subjectsCache.filter(s => s.subject === navSubject).map(s => s.type))];
+    breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span>${filterBadgeHtml} > ${escapeHtml(navSubject)}`;
+    const uniqueTypes = [...new Set(filteredCache.filter(s => s.subject === navSubject).map(s => s.type))];
     
+    if (uniqueTypes.length === 0) {
+      listEl.innerHTML = `<div class="test-row-empty">No categories found in this subject for this exam.</div>`;
+      return;
+    }
+
     uniqueTypes.forEach(typ => {
       const el = document.createElement("div");
       el.className = "folder-card";
@@ -320,9 +738,9 @@ async function renderTestList() {
     });
   } 
   else {
-    breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span> > <span class="breadcrumb-link" onclick="goSubjectFolder()">${escapeHtml(navSubject)}</span> >${escapeHtml(navType)}`;
+    breadcrumb.innerHTML = `<span class="breadcrumb-link" onclick="goHomeFolder()">📁 All Exams</span>${filterBadgeHtml} > <span class="breadcrumb-link" onclick="goSubjectFolder()">${escapeHtml(navSubject)}</span> > ${escapeHtml(navType)}`;
     
-    const tests = subjectsCache
+    const tests = filteredCache
       .filter(s => s.subject === navSubject && s.type === navType)
       .sort((a, b) => {
         const oa = a.order != null ? a.order : (a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0);
@@ -370,11 +788,15 @@ async function renderTestList() {
 
       const dragHandle = isAdmin ? `<span class="drag-handle" title="Drag to reorder">⠿</span>` : "";
 
+      const examBadge = t.examId && EXAMS_MAP[t.examId]
+        ? `<span class="badge" style="background:var(--surface-raised);border:1px solid var(--line-strong);color:var(--accent-strong);font-size:11px;padding:2px 7px;border-radius:12px;margin-left:6px;font-weight:500;">🎯 ${escapeHtml(EXAMS_MAP[t.examId].shortName || EXAMS_MAP[t.examId].name)}</span>`
+        : "";
+
       row.innerHTML = `
         <div class="test-row-info" style="display:flex;align-items:flex-start;gap:10px;">
           ${dragHandle}
           <div>
-            <h3>${escapeHtml(t.testName)}</h3>
+            <h3>${escapeHtml(t.testName)}${examBadge}</h3>
             <div class="test-row-meta">${t.questionCount || 0} questions · ${t.durationMinutes || 30} min</div>
             ${attemptBadge}
           </div>
@@ -489,6 +911,7 @@ document.getElementById("create-subject-btn").addEventListener("click", async ()
   const typeInput = document.getElementById("new-type").value || "Miscellaneous";
   const testNameInput = document.getElementById("new-test-name").value.trim() || "Untitled Test";
   const durationInput = parseInt(document.getElementById("new-duration").value, 10) || 30;
+  const examIdInput = document.getElementById("new-exam-id") ? document.getElementById("new-exam-id").value : "";
 
   const btn = document.getElementById("create-subject-btn");
   btn.disabled = true;
@@ -500,6 +923,7 @@ document.getElementById("create-subject-btn").addEventListener("click", async ()
       type: typeInput,
       testName: testNameInput,
       durationMinutes: durationInput, 
+      examId: examIdInput || "",
       order: Date.now(),
       createdAt: serverTimestamp() 
     });
@@ -507,6 +931,7 @@ document.getElementById("create-subject-btn").addEventListener("click", async ()
     document.getElementById("new-subject").value = "";
     document.getElementById("new-test-name").value = "";
     document.getElementById("new-duration").value = "";
+    if (document.getElementById("new-exam-id")) document.getElementById("new-exam-id").value = "";
     
     navSubject = subjectInput;
     navType = typeInput;
@@ -529,6 +954,9 @@ async function openEditModal(testId) {
   document.getElementById("edit-type").value = test.type || "Miscellaneous";
   document.getElementById("edit-test-name").value = test.testName || "";
   document.getElementById("edit-duration").value = test.durationMinutes || 30;
+  if (document.getElementById("edit-exam-id")) {
+    document.getElementById("edit-exam-id").value = test.examId || "";
+  }
   
   editModal.classList.remove("hidden");
   await renderEditQuestionsList(testId);
@@ -670,6 +1098,7 @@ document.getElementById("save-edit-btn").addEventListener("click", async () => {
   const newType = document.getElementById("edit-type").value || "Miscellaneous";
   const newTestName = document.getElementById("edit-test-name").value.trim() || "Untitled Test";
   const newDuration = parseInt(document.getElementById("edit-duration").value, 10) || 30;
+  const newExamId = document.getElementById("edit-exam-id") ? document.getElementById("edit-exam-id").value : "";
   
   const btn = document.getElementById("save-edit-btn");
   btn.disabled = true;
@@ -681,7 +1110,8 @@ document.getElementById("save-edit-btn").addEventListener("click", async () => {
       type: newType,
       testName: newTestName,
       name: newTestName, 
-      durationMinutes: newDuration
+      durationMinutes: newDuration,
+      examId: newExamId || ""
     });
     
     editModal.classList.add("hidden");
@@ -1060,6 +1490,373 @@ document.getElementById("back-to-dashboard").addEventListener("click", () => {
 });
 
 // ============================================================
+// QUESTION DISPLAY FORMATTER (Statements & Match-the-following)
+// ============================================================
+const ROMAN_NUMS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+const ROMAN_LOWER = ROMAN_NUMS.map(r => r.toLowerCase());
+
+const CONCLUSION_PATTERNS = [
+  /(?:Which\s+(?:of\s+the|of\s+these|among\s+the)?\s+(?:statements?\s+given\s+above|above\s+statements?|statements?|pairs?\s+given\s+above|above\s+pairs?|following(?:\s+statements?|\s+pairs?)?)\s+(?:is\/are|are|is)\s+(?:correct|not\s+correct|incorrect|true|false|correctly\s+matched|not\s+correctly\s+matched)[^?]*\??)/i,
+  /(?:Select\s+the\s+correct\s+(?:answer|code|option|statement|statements)\s+(?:using|from)\s+(?:the\s+)?(?:codes?|options?)\s+given\s+below[^:]*:?)/i,
+  /(?:Choose\s+the\s+correct\s+(?:answer|statement|statements|code|option|combination)[^:]*:?)/i,
+  /(?:Which\s+of\s+the\s+following\s+is(?:\s+the)?\s+correct\s+(?:matching|combination|code)\??)/i,
+  /(?:Which\s+of\s+the\s+following\s+(?:is\/are|are|is)\s+(?:correct|not\s+correct|incorrect|true|false)\??)/i
+];
+
+function extractConclusion(text) {
+  for (const pat of CONCLUSION_PATTERNS) {
+    const fullPat = new RegExp("(" + pat.source + ")\\s*$", "i");
+    const m = text.match(fullPat);
+    if (m) {
+      const mainText = text.slice(0, m.index).trim();
+      const conc = m[1].trim();
+      return { mainText, conclusion: conc };
+    }
+  }
+  const fallback = text.match(/((?:Which\s+(?:of|among)|Select\s+the|Choose\s+the)[^?:]*(?:\?|:))\s*$/i);
+  if (fallback) {
+    const mainText = text.slice(0, fallback.index).trim();
+    const conc = fallback[1].trim();
+    return { mainText, conclusion: conc };
+  }
+  return { mainText: text, conclusion: "" };
+}
+
+function parseMatchTheFollowing(rawText) {
+  const text = (rawText || "").trim();
+  if (!/\b(?:match|list|column)\b/i.test(text)) return null;
+
+  const { mainText, conclusion: extractedConc } = extractConclusion(text);
+  let conclusion = extractedConc;
+
+  const introMatch = mainText.match(/^(.*?match\s+(?:list[- ]?(?:I|1|A)\s+with\s+list[- ]?(?:II|2|B)|the\s+following|column[- ]?(?:I|1|A)\s+with\s+column[- ]?(?:II|2|B))[:.]?)\s*/i);
+  let introText = "";
+  let remainder = mainText;
+  if (introMatch) {
+    introText = introMatch[1].trim();
+    remainder = mainText.slice(introMatch[0].length);
+  }
+
+  let h1Match = remainder.match(/\b((?:List|Column)\s*[-–]?\s*(?:I|1|A))\b[:.]?/i);
+  if (!h1Match) {
+    h1Match = mainText.match(/\b((?:List|Column)\s*[-–]?\s*(?:I|1|A))\b[:.]?/i);
+    if (!h1Match) return null;
+    introText = mainText.slice(0, h1Match.index).trim();
+    remainder = mainText.slice(h1Match.index);
+    h1Match = remainder.match(/\b((?:List|Column)\s*[-–]?\s*(?:I|1|A))\b[:.]?/i);
+  }
+
+  const heading1 = h1Match[1].trim();
+  const afterH1 = remainder.slice(h1Match.index + h1Match[0].length);
+
+  const h2Match = afterH1.match(/\b((?:List|Column)\s*[-–]?\s*(?:II|2|B))\b[:.]?/i);
+  if (!h2Match) return null;
+
+  const heading2 = h2Match[1].trim();
+  let block1 = afterH1.slice(0, h2Match.index).trim();
+  let block2 = afterH1.slice(h2Match.index + h2Match[0].length).trim();
+
+  if (!conclusion) {
+    const b2Res = extractConclusion(block2);
+    if (b2Res.conclusion) {
+      block2 = b2Res.mainText;
+      conclusion = b2Res.conclusion;
+    }
+  }
+
+  function extractItems(block) {
+    const itemRegex = /(?:^|\s)(?:\(([A-Za-z0-9]+)\)|([A-Za-z0-9]+)[.)])\s+/g;
+    const matches = [];
+    let match;
+    while ((match = itemRegex.exec(block)) !== null) {
+      matches.push({ index: match.index, end: itemRegex.lastIndex, raw: match[0] });
+    }
+    if (matches.length >= 2) {
+      const items = [];
+      for (let i = 0; i < matches.length; i++) {
+        const label = matches[i].raw.trim();
+        const start = matches[i].end;
+        const end = i + 1 < matches.length ? matches[i + 1].index : block.length;
+        const val = block.slice(start, end).trim();
+        items.push({ label, text: val });
+      }
+      return items;
+    }
+    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length >= 2) {
+      return lines.map(l => ({ label: "", text: l }));
+    }
+    return [];
+  }
+
+  const items1 = extractItems(block1);
+  const items2 = extractItems(block2);
+
+  if (items1.length < 2 || items2.length < 2) return null;
+
+  return {
+    type: "match",
+    intro: introText || "Match List I with List II:",
+    sections: [
+      { heading: heading1, items: items1 },
+      { heading: heading2, items: items2 }
+    ],
+    conclusion
+  };
+}
+
+function parseStatements(rawText) {
+  const text = (rawText || "").trim();
+  const { mainText, conclusion } = extractConclusion(text);
+
+  const hasStatementContext =
+    /\b(?:statements?|consider|following|regarding|with\s+reference\s+to|select\s+the|read\s+the)\b/i.test(mainText) ||
+    Boolean(conclusion);
+
+  function testRomanSequence(isUpper, withParens) {
+    const tokens = isUpper ? ROMAN_NUMS : ROMAN_LOWER;
+    let patStr;
+    if (withParens) {
+      patStr = "(?:^|\\s)\\((" + tokens.join("|") + ")\\)\\s*";
+    } else {
+      patStr = "(?:^|\\s)(" + tokens.join("|") + ")[.)]\\s*";
+    }
+    const regex = new RegExp(patStr, isUpper ? "g" : "gi");
+    const matches = [];
+    let m;
+    while ((m = regex.exec(mainText)) !== null) {
+      matches.push({ index: m.index, end: regex.lastIndex, val: m[1], raw: m[0] });
+    }
+    if (matches.length < 2) return null;
+
+    const seqMatches = [];
+    let expectedIdx = 0;
+    for (const matchItem of matches) {
+      const val = isUpper ? matchItem.val.toUpperCase() : matchItem.val.toLowerCase();
+      if (expectedIdx < tokens.length && val === tokens[expectedIdx]) {
+        seqMatches.push(matchItem);
+        expectedIdx++;
+      } else if (expectedIdx > 0 && val === tokens[0]) {
+        seqMatches.length = 0;
+        seqMatches.push(matchItem);
+        expectedIdx = 1;
+      }
+    }
+
+    if (seqMatches.length >= 2) {
+      const intro = mainText.slice(0, seqMatches[0].index).trim();
+      const statements = [];
+      for (let i = 0; i < seqMatches.length; i++) {
+        const label = seqMatches[i].raw.trim();
+        const start = seqMatches[i].end;
+        const end = i + 1 < seqMatches.length ? seqMatches[i + 1].index : mainText.length;
+        const stText = mainText.slice(start, end).trim();
+        statements.push({ label, text: stText });
+      }
+      return {
+        type: "statement",
+        intro,
+        statements,
+        conclusion
+      };
+    }
+    return null;
+  }
+
+  let res = testRomanSequence(true, false);
+  if (res) return res;
+  res = testRomanSequence(true, true);
+  if (res) return res;
+  res = testRomanSequence(false, true);
+  if (res) return res;
+  res = testRomanSequence(false, false);
+  if (res) return res;
+
+  if (hasStatementContext) {
+    function testArabicSequence(withParens) {
+      const patStr = withParens ? "(?:^|\\s)\\((\\d{1,2})\\)\\s*" : "(?:^|\\s)(\\d{1,2})[.)]\\s*";
+      const regex = new RegExp(patStr, "g");
+      const matches = [];
+      let m;
+      while ((m = regex.exec(mainText)) !== null) {
+        matches.push({ index: m.index, end: regex.lastIndex, num: parseInt(m[1], 10), raw: m[0] });
+      }
+      if (matches.length < 2) return null;
+
+      let validMatches = matches;
+      if (!withParens && matches[0].index === 0) {
+        const afterFirst = mainText.slice(matches[0].end);
+        if (/^(?:Consider|With|Regarding|Which|Read|In|Match)\b/i.test(afterFirst)) {
+          validMatches = matches.slice(1);
+        }
+      }
+      if (validMatches.length < 2) return null;
+
+      const seqMatches = [];
+      let expectedNum = 1;
+      for (const item of validMatches) {
+        if (item.num === expectedNum) {
+          seqMatches.push(item);
+          expectedNum++;
+        } else if (expectedNum > 1 && item.num === 1) {
+          seqMatches.length = 0;
+          seqMatches.push(item);
+          expectedNum = 2;
+        }
+      }
+
+      if (seqMatches.length >= 2) {
+        const intro = mainText.slice(0, seqMatches[0].index).trim();
+        const statements = [];
+        for (let i = 0; i < seqMatches.length; i++) {
+          const label = seqMatches[i].raw.trim();
+          const start = seqMatches[i].end;
+          const end = i + 1 < seqMatches.length ? seqMatches[i + 1].index : mainText.length;
+          const stText = mainText.slice(start, end).trim();
+          statements.push({ label, text: stText });
+        }
+        return {
+          type: "statement",
+          intro,
+          statements,
+          conclusion
+        };
+      }
+      return null;
+    }
+
+    res = testArabicSequence(false);
+    if (res) return res;
+    res = testArabicSequence(true);
+    if (res) return res;
+  }
+
+  return null;
+}
+
+function parseQuestionStructure(text) {
+  if (!text || typeof text !== "string") {
+    return { type: "plain", text: "" };
+  }
+  const matchRes = parseMatchTheFollowing(text);
+  if (matchRes) return matchRes;
+
+  const stmtRes = parseStatements(text);
+  if (stmtRes) return stmtRes;
+
+  return { type: "plain", text };
+}
+
+function renderFormattedQuestion(container, rawText) {
+  if (!container) return;
+  container.innerHTML = "";
+
+  const parsed = parseQuestionStructure(rawText);
+
+  if (parsed.type === "statement") {
+    const wrap = document.createElement("div");
+    wrap.className = "q-formatted-statement";
+
+    if (parsed.intro) {
+      const introEl = document.createElement("div");
+      introEl.className = "q-statement-intro";
+      introEl.textContent = parsed.intro;
+      wrap.appendChild(introEl);
+    }
+
+    const listEl = document.createElement("div");
+    listEl.className = "q-statement-list";
+    parsed.statements.forEach(st => {
+      const itemEl = document.createElement("div");
+      itemEl.className = "q-statement-item";
+
+      const numEl = document.createElement("span");
+      numEl.className = "q-statement-num";
+      numEl.textContent = st.label;
+
+      const textEl = document.createElement("span");
+      textEl.className = "q-statement-text";
+      textEl.textContent = st.text;
+
+      itemEl.appendChild(numEl);
+      itemEl.appendChild(textEl);
+      listEl.appendChild(itemEl);
+    });
+    wrap.appendChild(listEl);
+
+    if (parsed.conclusion) {
+      const concEl = document.createElement("div");
+      concEl.className = "q-statement-conclusion";
+      concEl.textContent = parsed.conclusion;
+      wrap.appendChild(concEl);
+    }
+
+    container.appendChild(wrap);
+  } else if (parsed.type === "match") {
+    const wrap = document.createElement("div");
+    wrap.className = "q-formatted-match";
+
+    if (parsed.intro) {
+      const introEl = document.createElement("div");
+      introEl.className = "q-match-intro";
+      introEl.textContent = parsed.intro;
+      wrap.appendChild(introEl);
+    }
+
+    const listsEl = document.createElement("div");
+    listsEl.className = "q-match-lists";
+
+    parsed.sections.forEach(sec => {
+      const colEl = document.createElement("div");
+      colEl.className = "q-match-column";
+
+      const headingEl = document.createElement("div");
+      headingEl.className = "q-match-heading";
+      headingEl.textContent = sec.heading;
+      colEl.appendChild(headingEl);
+
+      const itemsEl = document.createElement("div");
+      itemsEl.className = "q-match-items";
+      sec.items.forEach(it => {
+        const itemEl = document.createElement("div");
+        itemEl.className = "q-match-item";
+
+        if (it.label) {
+          const lblEl = document.createElement("span");
+          lblEl.className = "q-match-label";
+          lblEl.textContent = it.label;
+          itemEl.appendChild(lblEl);
+        }
+
+        const textEl = document.createElement("span");
+        textEl.className = "q-match-text";
+        textEl.textContent = it.text;
+        itemEl.appendChild(textEl);
+
+        itemsEl.appendChild(itemEl);
+      });
+      colEl.appendChild(itemsEl);
+      listsEl.appendChild(colEl);
+    });
+    wrap.appendChild(listsEl);
+
+    if (parsed.conclusion) {
+      const concEl = document.createElement("div");
+      concEl.className = "q-match-conclusion";
+      concEl.textContent = parsed.conclusion;
+      wrap.appendChild(concEl);
+    }
+
+    container.appendChild(wrap);
+  } else {
+    const wrap = document.createElement("div");
+    wrap.className = "q-formatted-plain";
+    wrap.textContent = parsed.text;
+    container.appendChild(wrap);
+  }
+}
+
+// ============================================================
 // Test-taking engine
 // ============================================================
 let currentSubject = null;
@@ -1120,7 +1917,7 @@ function renderQuestion() {
 
   document.getElementById("q-count").textContent = `Q ${currentIndex + 1} / ${currentQuestions.length}`;
   document.getElementById("btn-prev").disabled = currentIndex === 0;
-  document.getElementById("q-text").textContent = q.text;
+  renderFormattedQuestion(document.getElementById("q-text"), q.text);
 
   const topicEl = document.getElementById("q-topic");
   if (q.topic) { topicEl.textContent = q.topic; topicEl.classList.remove("hidden"); }
@@ -1263,30 +2060,50 @@ function renderResults(r) {
   }
 
   const reviewEl = document.getElementById("review-list");
-  let reviewHtmlList = r.reviewData.map(q => {
+  reviewEl.innerHTML = "";
+  r.reviewData.forEach(q => {
     const cls = !q.isAnswered ? "skipped" : (q.isCorrect ? "right" : "wrong");
     const yourAnswer = q.isAnswered ? q.options[q.selected] : "Not attempted";
-    
-    let correctString = !q.isCorrect ? `<div class="review-answer correct-text">Correct answer: ${escapeHtml(q.options[q.correctIndex])}</div>` : "";
-    let expString = q.explanation ? `<div class="review-answer" style="color:var(--text-muted);">${escapeHtml(q.explanation)}</div>` : "";
 
-    return `
-      <div class="review-item ${cls}">
-        <div>${escapeHtml(q.text)}</div>
-        <div class="review-answer ${q.isAnswered ? (q.isCorrect ? "correct-text" : "wrong-text") : ""}">Your answer: ${escapeHtml(yourAnswer)}</div>
-        ${correctString}
-        ${expString}
-      </div>`;
+    const itemEl = document.createElement("div");
+    itemEl.className = `review-item ${cls}`;
+
+    const qTextDiv = document.createElement("div");
+    renderFormattedQuestion(qTextDiv, q.text);
+    itemEl.appendChild(qTextDiv);
+
+    const ansDiv = document.createElement("div");
+    ansDiv.className = `review-answer ${q.isAnswered ? (q.isCorrect ? "correct-text" : "wrong-text") : ""}`;
+    ansDiv.textContent = `Your answer: ${yourAnswer}`;
+    itemEl.appendChild(ansDiv);
+
+    if (!q.isCorrect) {
+      const correctDiv = document.createElement("div");
+      correctDiv.className = "review-answer correct-text";
+      correctDiv.textContent = `Correct answer: ${q.options[q.correctIndex]}`;
+      itemEl.appendChild(correctDiv);
+    }
+
+    if (q.explanation) {
+      const expDiv = document.createElement("div");
+      expDiv.className = "review-answer";
+      expDiv.style.color = "var(--text-muted)";
+      expDiv.textContent = q.explanation;
+      itemEl.appendChild(expDiv);
+    }
+
+    reviewEl.appendChild(itemEl);
   });
-  
-  reviewEl.innerHTML = reviewHtmlList.join("");
   showView("view-results");
 }
 
 function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = String(str);
-  return div.innerHTML;
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 document.addEventListener("visibilitychange", () => {
