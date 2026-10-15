@@ -4,7 +4,41 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Test Series</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oxygen:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css" />
+
+<script>
+  (function() {
+    try {
+      var t = localStorage.getItem('ts_theme') || localStorage.getItem('ts-theme') || 'dark';
+      var a = localStorage.getItem('ts_accent') || 'blue';
+      var c = localStorage.getItem('ts_contrast') || 'standard';
+      var f = localStorage.getItem('ts_ui_font') || 'system';
+      var s = localStorage.getItem('ts_ui_size') || 'medium';
+      var tf = localStorage.getItem('ts_test_font') || 'times';
+      var rawTs = localStorage.getItem('ts_test_size') || '100';
+      var numTs = parseInt(rawTs, 10);
+      var pxTs = 16;
+      if (!isNaN(numTs)) {
+        if (numTs >= 12 && numTs <= 24) {
+          pxTs = numTs;
+        } else if (numTs >= 80 && numTs <= 150) {
+          pxTs = Math.round(16 * (numTs / 100));
+        }
+      }
+      var root = document.documentElement;
+      root.setAttribute('data-theme', t);
+      root.setAttribute('data-accent', a);
+      root.setAttribute('data-contrast', c);
+      root.setAttribute('data-ui-font', f);
+      root.setAttribute('data-ui-size', s);
+      root.setAttribute('data-test-font', tf);
+      root.style.setProperty('--test-font-size', pxTs + 'px');
+    } catch(e) {}
+  })();
+</script>
 
 <!-- Document Parsing Libraries (PDF & Word) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
@@ -124,20 +158,76 @@
 
   <!-- ============ APP SHELL (dashboard / admin) ============ -->
   <section id="view-app" class="hidden">
-    <div class="topbar">
-      <div class="brand">
-        <span class="brand-mark" id="home-link" style="cursor: pointer;">TEST SERIES</span>
-      </div>
-      <div class="topbar-actions">
-        <button class="icon-btn" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">◐</button>
-        <button class="btn btn-quiet btn-sm" id="profile-btn" title="View or edit your student profile" style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-          👤 <span id="whoami" style="font-size:13px;color:var(--text-muted);margin-left:4px;"></span>
-        </button>
-        <button class="btn btn-quiet btn-sm" id="signout-btn">Sign out</button>
-      </div>
-    </div>
+    <div class="app-layout" id="app-layout">
+      <!-- Collapsible App Sidebar (ChatGPT-inspired) -->
+      <aside class="app-sidebar" id="app-sidebar">
+        <div class="app-sidebar-header">
+          <div class="app-sidebar-brand">
+            <span class="brand-mark">TEST SERIES</span>
+          </div>
+          <button type="button" class="icon-btn app-sidebar-close-btn" id="app-sidebar-close-btn" title="Close sidebar" aria-label="Close sidebar">✕</button>
+        </div>
 
-    <div class="main">
+        <div class="app-sidebar-user" id="app-sidebar-user" title="View student profile">
+          <div class="user-avatar-sm" id="sidebar-user-avatar">👤</div>
+          <div class="user-info-sm">
+            <div class="user-name-sm" id="sidebar-user-name">Student Profile</div>
+            <div class="user-meta-sm" id="sidebar-user-meta">Set up profile</div>
+          </div>
+        </div>
+
+        <nav class="app-sidebar-nav">
+          <button type="button" class="app-nav-item active" id="nav-item-dashboard">
+            <span class="nav-icon">📁</span>
+            <span class="nav-label">Dashboard</span>
+          </button>
+          <button type="button" class="app-nav-item" id="nav-item-profile">
+            <span class="nav-icon">👤</span>
+            <span class="nav-label">Profile</span>
+          </button>
+          <button type="button" class="app-nav-item" id="nav-item-settings">
+            <span class="nav-icon">⚙️</span>
+            <span class="nav-label">Settings</span>
+          </button>
+        </nav>
+
+        <div class="app-sidebar-footer">
+          <button type="button" class="app-nav-item app-nav-signout" id="sidebar-signout-btn">
+            <span class="nav-icon">🚪</span>
+            <span class="nav-label">Sign out</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Mobile Backdrop for Sidebar Drawer -->
+      <div class="app-sidebar-backdrop hidden" id="app-sidebar-backdrop"></div>
+
+      <!-- Main Content Container (Expands when sidebar collapses) -->
+      <div class="app-main-content" id="app-main-content">
+        <div class="topbar">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <button type="button" class="icon-btn sidebar-toggle-btn" id="app-sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="9" y1="3" x2="9" y2="21"></line>
+              </svg>
+            </button>
+            <div class="brand">
+              <span class="brand-mark" id="home-link" style="cursor: pointer;">TEST SERIES</span>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <button type="button" class="btn btn-quiet btn-sm" id="topbar-settings-btn" title="Open Settings" style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+              ⚙️ <span class="hide-mobile">Settings</span>
+            </button>
+            <button type="button" class="btn btn-quiet btn-sm" id="profile-btn" title="View or edit your student profile" style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+              👤 <span id="whoami" style="font-size:13px;color:var(--text-muted);margin-left:4px;"></span>
+            </button>
+            <button type="button" class="btn btn-quiet btn-sm" id="signout-btn">Sign out</button>
+          </div>
+        </div>
+
+        <div class="main">
       <div class="section-head"><h2>Your Dashboard</h2></div>
       
       <!-- My Exams Section (Batch 2) -->
@@ -223,7 +313,8 @@
         </div>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
   <!-- ============ EDIT TEST MODAL ============ -->
   <div id="edit-test-modal" class="modal-overlay hidden">
@@ -395,13 +486,119 @@
     </div>
   </div>
 
+  <!-- ============ PAUSE TEST MODAL (ACTIVE PAUSE OVERLAY) ============ -->
+  <div id="pause-modal" class="modal-overlay hidden" style="z-index: 2000; backdrop-filter: blur(8px); background: rgba(0,0,0,0.75);">
+    <div class="modal-content" style="max-width: 480px; text-align: center; padding: 30px 24px;">
+      <div style="font-size: 42px; margin-bottom: 10px;">⏸️</div>
+      <h2 id="pause-modal-title" style="margin-bottom: 8px; color: var(--text);">Test Paused</h2>
+      <p id="pause-modal-sub" style="color: var(--text-muted); font-size: 14px; margin-bottom: 20px;">
+        Your progress and remaining time have been safely saved.
+      </p>
+
+      <div id="pause-stats-card" style="background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; padding: 16px; margin-bottom: 20px; text-align: left;">
+        <div class="pause-stat-item">
+          <span style="color: var(--text-muted);">Test:</span>
+          <strong id="pause-stat-name" style="color: var(--text); max-width: 250px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</strong>
+        </div>
+        <div class="pause-stat-item">
+          <span style="color: var(--text-muted);">Remaining Time:</span>
+          <strong id="pause-stat-time" style="color: var(--primary); font-family: var(--font-mono); font-size: 16px;">00:00</strong>
+        </div>
+        <div class="pause-stat-item">
+          <span style="color: var(--text-muted);">Answered:</span>
+          <strong id="pause-stat-answered" style="color: var(--text);">-</strong>
+        </div>
+        <div class="pause-stat-item">
+          <span style="color: var(--text-muted);">Marked for Review:</span>
+          <strong id="pause-stat-marked" style="color: var(--text);">-</strong>
+        </div>
+      </div>
+
+      <div id="pause-saving-indicator" class="hidden" style="margin-bottom: 16px; font-size: 14px; color: var(--text-muted);">
+        Saving progress to cloud…
+      </div>
+      <div id="pause-error-msg" class="auth-error hidden" style="margin-bottom: 16px; text-align: left;"></div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button type="button" class="btn btn-primary" id="btn-resume-paused" style="width: 100%; font-size: 15px; padding: 12px; font-weight: 600;">
+          ▶️ Resume Test Now
+        </button>
+        <button type="button" class="btn" id="btn-exit-to-dashboard" style="width: 100%; font-size: 14px; padding: 10px;">
+          📁 Exit to Dashboard
+        </button>
+        <button type="button" id="btn-discard-active-paused" style="background: none; border: none; color: var(--danger); font-size: 12px; cursor: pointer; padding: 6px; margin-top: 4px; text-decoration: underline;">
+          Discard this attempt and start over
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RESUME / DISCARD PROMPT MODAL ============ -->
+  <div id="resume-confirm-modal" class="modal-overlay hidden" style="z-index: 1500;">
+    <div class="modal-content" style="max-width: 480px; padding: 26px;">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+        <span style="font-size: 32px;">⏸️</span>
+        <div>
+          <h3 style="margin: 0; color: var(--text);" id="resume-modal-title">Unfinished Test Found</h3>
+          <p style="margin: 3px 0 0; color: var(--text-muted); font-size: 13px;" id="resume-modal-testname">-</p>
+        </div>
+      </div>
+      <p style="font-size: 14px; color: var(--text); line-height: 1.5; margin-bottom: 16px;">
+        You have an unfinished attempt saved for this test.
+      </p>
+      <div id="resume-modal-details" style="background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 13px; line-height: 1.6;">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button type="button" class="btn btn-primary" id="btn-confirm-resume" style="width: 100%; padding: 11px; font-size: 14px; font-weight: 600;">
+          ▶️ Resume Saved Attempt
+        </button>
+        <button type="button" class="btn btn-quiet" id="btn-confirm-discard" style="width: 100%; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); padding: 9px; font-size: 13px;">
+          🗑️ Discard Saved Attempt &amp; Start Fresh
+        </button>
+        <button type="button" class="btn" id="btn-cancel-resume-modal" style="width: 100%; padding: 8px; font-size: 13px;">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ TEST-TAKING VIEW ============ -->
   <section id="view-test" class="hidden">
-    <div class="test-shell">
+    <div class="test-shell" id="test-shell">
       <div class="test-main">
         <div class="test-header">
-          <div class="test-title" id="test-subject-name">Subject</div>
-          <div class="q-count" id="q-count">Q 1 / 20</div>
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div class="test-title" id="test-subject-name">Subject</div>
+            <div class="test-typo-bar" id="test-typo-bar" title="Adjust test typography">
+              <select id="test-font-family-select" class="test-typo-select" title="Test font family" aria-label="Test font family">
+                <option value="times">Times New Roman</option>
+                <option value="oxygen">Oxygen</option>
+                <option value="inter">Inter</option>
+                <option value="system">System Default</option>
+                <option value="arial">Arial</option>
+              </select>
+              <div class="test-size-btn-group">
+                <button type="button" class="btn btn-quiet btn-xs" id="btn-test-font-decrease" title="Decrease font size (A−)" aria-label="Decrease font size">A−</button>
+                <span class="test-font-indicator" id="test-font-size-indicator" title="Current test font size">100%</span>
+                <button type="button" class="btn btn-quiet btn-xs" id="btn-test-font-increase" title="Increase font size (A+)" aria-label="Increase font size">A+</button>
+                <button type="button" class="btn btn-quiet btn-xs" id="btn-test-font-reset" title="Reset font size" aria-label="Reset font size">↺</button>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <div class="header-timer" id="header-timer" title="Time Remaining">
+              <span>⏱️</span>
+              <span id="timer-header">30:00</span>
+            </div>
+            <button type="button" class="btn btn-quiet btn-sm btn-pause-action" id="btn-pause-test-header" title="Pause test and save progress">
+              ⏸️ Pause
+            </button>
+            <div class="q-count" id="q-count">Q 1 / 20</div>
+            <button type="button" class="btn btn-quiet btn-sm palette-toggle-btn" id="btn-toggle-palette-header" title="Toggle Question Palette" aria-label="Toggle Question Palette">
+              <span id="palette-toggle-icon">⇥</span>
+              <span id="palette-toggle-text">Palette</span>
+            </button>
+          </div>
         </div>
 
         <div id="q-topic" class="q-topic hidden"></div>
@@ -413,11 +610,25 @@
           <button class="btn" id="btn-mark-review">Mark for review &amp; next</button>
           <button class="btn" id="btn-clear">Clear response</button>
           <button class="btn btn-primary" id="btn-save-next">Save &amp; next</button>
+          <button class="btn btn-danger btn-submit-inline hidden" id="btn-submit-inline" title="Submit test">
+            Submit test
+          </button>
         </div>
       </div>
 
-      <div class="palette-panel">
-        <div class="timer" id="timer">30:00</div>
+      <div class="palette-panel" id="palette-panel">
+        <div class="palette-topbar">
+          <span class="palette-heading">Question Palette</span>
+          <button type="button" class="btn btn-quiet btn-sm palette-collapse-btn" id="btn-collapse-palette" title="Collapse Question Palette" aria-label="Collapse Question Palette">
+            <span>Hide ⇥</span>
+          </button>
+        </div>
+        <div class="timer-row">
+          <div class="timer" id="timer">30:00</div>
+          <button type="button" class="btn btn-sm btn-pause-action" id="btn-pause-test" title="Pause test and save progress">
+            ⏸️ Pause
+          </button>
+        </div>
         <div class="legend">
           <div class="legend-item"><span class="legend-dot" style="background:var(--status-not-visited)"></span>Not visited</div>
           <div class="legend-item"><span class="legend-dot" style="background:var(--status-not-answered)"></span>Not answered</div>
@@ -425,10 +636,18 @@
           <div class="legend-item"><span class="legend-dot" style="background:var(--status-marked)"></span>Marked</div>
         </div>
         <div class="palette-grid" id="palette-grid"></div>
-        <div class="submit-block">
+        <div class="submit-block" style="display: flex; flex-direction: column; gap: 8px;">
+          <button type="button" class="btn btn-quiet btn-pause-action" style="width: 100%; justify-content: center;" id="btn-pause-test-alt">
+            ⏸️ Pause Test
+          </button>
           <button class="btn btn-danger" style="width:100%" id="btn-submit-test">Submit test</button>
         </div>
       </div>
+
+      <!-- Floating reopen tab docked on right screen edge when sidebar is collapsed -->
+      <button type="button" id="palette-reopen-tab" class="palette-reopen-tab hidden" title="Open Question Palette" aria-label="Open Question Palette">
+        <span>◀ Question Palette</span>
+      </button>
     </div>
   </section>
 
@@ -451,6 +670,167 @@
       <div id="review-list"></div>
     </div>
   </section>
+
+  <!-- ============ SETTINGS MODAL ============ -->
+  <div id="settings-modal" class="modal-overlay hidden" style="z-index: 1200;">
+    <div class="modal-content settings-modal-content">
+      <div class="settings-modal-header">
+        <div>
+          <h3 class="settings-modal-title">Settings</h3>
+          <p class="settings-modal-sub">Appearance and system preferences</p>
+        </div>
+        <button type="button" class="icon-btn" id="settings-modal-close" title="Close Settings" aria-label="Close Settings">✕</button>
+      </div>
+
+      <div class="settings-modal-body">
+        <!-- 1. Theme Setting -->
+        <div class="settings-group">
+          <div class="settings-group-header">
+            <div class="settings-group-title">Theme</div>
+            <div class="settings-group-desc">Choose how the interface appears on your device.</div>
+          </div>
+          <div class="theme-tiles-grid" id="theme-tiles-grid">
+            <div class="theme-tile" data-theme-val="light" tabindex="0" role="button" aria-label="Select Light theme">
+              <div class="theme-tile-preview preview-light">
+                <div class="preview-bar"></div>
+                <div class="preview-body">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-line"></div>
+                    <div class="preview-line sm"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="theme-tile-footer">
+                <span class="theme-tile-name">Light</span>
+                <span class="theme-tile-check">✓</span>
+              </div>
+            </div>
+
+            <div class="theme-tile active" data-theme-val="dark" tabindex="0" role="button" aria-label="Select Dark theme">
+              <div class="theme-tile-preview preview-dark">
+                <div class="preview-bar"></div>
+                <div class="preview-body">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-line"></div>
+                    <div class="preview-line sm"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="theme-tile-footer">
+                <span class="theme-tile-name">Dark</span>
+                <span class="theme-tile-check">✓</span>
+              </div>
+            </div>
+
+            <div class="theme-tile" data-theme-val="lights-out" tabindex="0" role="button" aria-label="Select Lights Out AMOLED theme">
+              <div class="theme-tile-preview preview-lights-out">
+                <div class="preview-bar"></div>
+                <div class="preview-body">
+                  <div class="preview-sidebar"></div>
+                  <div class="preview-content">
+                    <div class="preview-line"></div>
+                    <div class="preview-line sm"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="theme-tile-footer">
+                <span class="theme-tile-name">Lights Out</span>
+                <span class="theme-tile-check">✓</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Accent Color Setting -->
+        <div class="settings-group">
+          <div class="settings-group-header">
+            <div class="settings-group-title">Accent Color</div>
+            <div class="settings-group-desc">Select an accent color for active buttons, tabs, and highlights.</div>
+          </div>
+          <div class="accent-swatches" id="accent-swatches">
+            <button type="button" class="accent-swatch swatch-blue active" data-accent-val="blue" title="Default Blue" aria-label="Default Blue"></button>
+            <button type="button" class="accent-swatch swatch-green" data-accent-val="green" title="Green" aria-label="Green"></button>
+            <button type="button" class="accent-swatch swatch-yellow" data-accent-val="yellow" title="Yellow" aria-label="Yellow"></button>
+            <button type="button" class="accent-swatch swatch-pink" data-accent-val="pink" title="Pink" aria-label="Pink"></button>
+            <button type="button" class="accent-swatch swatch-orange" data-accent-val="orange" title="Orange" aria-label="Orange"></button>
+            <button type="button" class="accent-swatch swatch-purple" data-accent-val="purple" title="Purple" aria-label="Purple"></button>
+            <button type="button" class="accent-swatch swatch-black" data-accent-val="black" title="Black" aria-label="Black"></button>
+          </div>
+        </div>
+
+        <!-- 3. Contrast Setting -->
+        <div class="settings-group">
+          <div class="settings-group-header">
+            <div class="settings-group-title">Contrast</div>
+            <div class="settings-group-desc">Increase border distinction and text sharpness across all themes.</div>
+          </div>
+          <div class="segmented-control" id="contrast-segmented">
+            <button type="button" class="segmented-btn active" data-contrast-val="standard">Standard</button>
+            <button type="button" class="segmented-btn" data-contrast-val="more">More Contrast</button>
+          </div>
+        </div>
+
+        <!-- 4. UI Font Family -->
+        <div class="settings-group">
+          <div class="settings-group-header">
+            <div class="settings-group-title">UI Font Family</div>
+            <div class="settings-group-desc">Typography applied to the dashboard, navigation, and settings.</div>
+          </div>
+          <select id="ui-font-select" class="settings-select" aria-label="UI Font Family">
+            <option value="system">System Default</option>
+            <option value="inter">Inter (Modern Sans)</option>
+            <option value="oxygen">Oxygen (Readable Sans)</option>
+            <option value="arial">Arial</option>
+            <option value="times">Times New Roman (Serif)</option>
+          </select>
+        </div>
+
+        <!-- 5. UI Font Size -->
+        <div class="settings-group">
+          <div class="settings-group-header">
+            <div class="settings-group-title">UI Font Size</div>
+            <div class="settings-group-desc">Adjust scaling for text, menus, and forms across the website.</div>
+          </div>
+          <div class="segmented-control" id="ui-size-segmented">
+            <button type="button" class="segmented-btn" data-ui-size-val="small">Small</button>
+            <button type="button" class="segmented-btn active" data-ui-size-val="medium">Medium</button>
+            <button type="button" class="segmented-btn" data-ui-size-val="large">Large</button>
+          </div>
+        </div>
+
+        <!-- 6. Test Typography Defaults -->
+        <div class="settings-group" style="border-top: 1px solid var(--line); padding-top: 16px;">
+          <div class="settings-group-header">
+            <div class="settings-group-title">Test Interface Typography Defaults</div>
+            <div class="settings-group-desc">Font family and text size for question solving (also adjustable live inside any test).</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 8px;">
+            <div>
+              <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">Test Font</label>
+              <select id="settings-test-font-select" class="settings-select" aria-label="Test Font Family">
+                <option value="times">Times New Roman</option>
+                <option value="oxygen">Oxygen</option>
+                <option value="inter">Inter</option>
+                <option value="system">System Default</option>
+                <option value="arial">Arial</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">Test Base Size</label>
+              <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px;">
+                <button type="button" class="btn btn-quiet btn-sm" id="settings-test-font-dec">A−</button>
+                <span id="settings-test-font-indicator" style="font-size:13px; font-weight:600; min-width:44px; text-align:center;">100%</span>
+                <button type="button" class="btn btn-quiet btn-sm" id="settings-test-font-inc">A+</button>
+                <button type="button" class="btn btn-quiet btn-sm" id="settings-test-font-reset">Reset</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
 </div>
 

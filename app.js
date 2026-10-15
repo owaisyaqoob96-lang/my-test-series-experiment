@@ -12,7 +12,7 @@ const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
 import {
   getFirestore, collection, addDoc, getDocs, getCountFromServer,
   serverTimestamp, deleteDoc, doc, updateDoc, query, where, writeBatch,
-  getDoc, runTransaction
+  getDoc, runTransaction, setDoc, deleteField
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
 let draggedTestId = null; // admin drag-and-drop reordering (slide-sorter style)
@@ -39,16 +39,409 @@ function showView(name) {
   views.forEach(v => document.getElementById(v).classList.toggle("hidden", v !== name));
 }
 
-const html = document.documentElement;
-const savedTheme = localStorage.getItem("ts-theme");
-if (savedTheme) html.setAttribute("data-theme", savedTheme);
-document.getElementById("theme-toggle").addEventListener("click", () => {
-  const current = html.getAttribute("data-theme") ||
-    (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  const next = current === "dark" ? "light" : "dark";
-  html.setAttribute("data-theme", next);
-  localStorage.setItem("ts-theme", next);
-});
+// ============================================================
+// Appearance Design System & Settings Manager
+// ============================================================
+const APPEARANCE_DEFAULTS = {
+  theme: "dark",
+  accent: "blue",
+  contrast: "standard",
+  uiFont: "system",
+  uiSize: "medium",
+  testFont: "times",
+  testSize: 100 // percent (80% to 150%)
+};
+
+const VALID_THEMES = ["light", "dark", "lights-out"];
+const VALID_ACCENTS = ["blue", "green", "yellow", "pink", "orange", "purple", "black"];
+const VALID_CONTRASTS = ["standard", "more"];
+const VALID_UI_FONTS = ["system", "inter", "oxygen", "arial", "times"];
+const VALID_UI_SIZES = ["small", "medium", "large"];
+const VALID_TEST_FONTS = ["times", "oxygen", "inter", "system", "arial"];
+
+let appearanceState = { ...APPEARANCE_DEFAULTS };
+
+function parseStoredTestSize(val) {
+  if (!val) return APPEARANCE_DEFAULTS.testSize;
+  const num = parseInt(val, 10);
+  if (isNaN(num)) return APPEARANCE_DEFAULTS.testSize;
+  if (num >= 12 && num <= 24) {
+    return Math.round((num / 16) * 100);
+  }
+  return Math.min(150, Math.max(80, num));
+}
+
+function loadAppearanceSettings() {
+  try {
+    const storedTheme = localStorage.getItem("ts_theme") || localStorage.getItem("ts-theme");
+    const storedAccent = localStorage.getItem("ts_accent");
+    const storedContrast = localStorage.getItem("ts_contrast");
+    const storedUiFont = localStorage.getItem("ts_ui_font");
+    const storedUiSize = localStorage.getItem("ts_ui_size");
+    const storedTestFont = localStorage.getItem("ts_test_font");
+    const storedTestSize = localStorage.getItem("ts_test_size");
+
+    appearanceState.theme = VALID_THEMES.includes(storedTheme) ? storedTheme : APPEARANCE_DEFAULTS.theme;
+    appearanceState.accent = VALID_ACCENTS.includes(storedAccent) ? storedAccent : APPEARANCE_DEFAULTS.accent;
+    appearanceState.contrast = VALID_CONTRASTS.includes(storedContrast) ? storedContrast : APPEARANCE_DEFAULTS.contrast;
+    appearanceState.uiFont = VALID_UI_FONTS.includes(storedUiFont) ? storedUiFont : APPEARANCE_DEFAULTS.uiFont;
+    appearanceState.uiSize = VALID_UI_SIZES.includes(storedUiSize) ? storedUiSize : APPEARANCE_DEFAULTS.uiSize;
+    appearanceState.testFont = VALID_TEST_FONTS.includes(storedTestFont) ? storedTestFont : APPEARANCE_DEFAULTS.testFont;
+    appearanceState.testSize = parseStoredTestSize(storedTestSize);
+  } catch (e) {
+    console.warn("Could not read appearance settings from localStorage", e);
+  }
+  applyAllAppearanceSettings();
+  renderSettingsControls();
+}
+
+function applyAllAppearanceSettings() {
+  const root = document.documentElement;
+  root.setAttribute("data-theme", appearanceState.theme);
+  root.setAttribute("data-accent", appearanceState.accent);
+  root.setAttribute("data-contrast", appearanceState.contrast);
+  root.setAttribute("data-ui-font", appearanceState.uiFont);
+  root.setAttribute("data-ui-size", appearanceState.uiSize);
+  root.setAttribute("data-test-font", appearanceState.testFont);
+
+  const pxSize = Math.round(16 * (appearanceState.testSize / 100));
+  root.style.setProperty("--test-font-size", `${pxSize}px`);
+
+  updateTestSizeDisplays();
+}
+
+function updateTestSizeDisplays() {
+  const text = `${appearanceState.testSize}%`;
+  const liveIndicator = document.getElementById("test-font-size-indicator");
+  const modalIndicator = document.getElementById("settings-test-font-indicator");
+  if (liveIndicator) liveIndicator.textContent = text;
+  if (modalIndicator) modalIndicator.textContent = text;
+}
+
+function setTheme(theme) {
+  if (!VALID_THEMES.includes(theme)) return;
+  appearanceState.theme = theme;
+  document.documentElement.setAttribute("data-theme", theme);
+  try {
+    localStorage.setItem("ts_theme", theme);
+    localStorage.setItem("ts-theme", theme);
+  } catch (e) {}
+  renderSettingsControls();
+}
+
+function setAccent(accent) {
+  if (!VALID_ACCENTS.includes(accent)) return;
+  appearanceState.accent = accent;
+  document.documentElement.setAttribute("data-accent", accent);
+  try { localStorage.setItem("ts_accent", accent); } catch (e) {}
+  renderSettingsControls();
+}
+
+function setContrast(contrast) {
+  if (!VALID_CONTRASTS.includes(contrast)) return;
+  appearanceState.contrast = contrast;
+  document.documentElement.setAttribute("data-contrast", contrast);
+  try { localStorage.setItem("ts_contrast", contrast); } catch (e) {}
+  renderSettingsControls();
+}
+
+function setUiFont(font) {
+  if (!VALID_UI_FONTS.includes(font)) return;
+  appearanceState.uiFont = font;
+  document.documentElement.setAttribute("data-ui-font", font);
+  try { localStorage.setItem("ts_ui_font", font); } catch (e) {}
+  renderSettingsControls();
+}
+
+function setUiSize(size) {
+  if (!VALID_UI_SIZES.includes(size)) return;
+  appearanceState.uiSize = size;
+  document.documentElement.setAttribute("data-ui-size", size);
+  try { localStorage.setItem("ts_ui_size", size); } catch (e) {}
+  renderSettingsControls();
+}
+
+function setTestFont(font) {
+  if (!VALID_TEST_FONTS.includes(font)) return;
+  appearanceState.testFont = font;
+  document.documentElement.setAttribute("data-test-font", font);
+  try { localStorage.setItem("ts_test_font", font); } catch (e) {}
+  renderSettingsControls();
+}
+
+function adjustTestSize(delta) {
+  const newSize = Math.min(150, Math.max(80, appearanceState.testSize + delta));
+  appearanceState.testSize = newSize;
+  const pxSize = Math.round(16 * (newSize / 100));
+  document.documentElement.style.setProperty("--test-font-size", `${pxSize}px`);
+  try { localStorage.setItem("ts_test_size", String(newSize)); } catch (e) {}
+  updateTestSizeDisplays();
+}
+
+function resetTestSize() {
+  appearanceState.testSize = 100;
+  document.documentElement.style.setProperty("--test-font-size", "16px");
+  try { localStorage.setItem("ts_test_size", "100"); } catch (e) {}
+  updateTestSizeDisplays();
+}
+
+function renderSettingsControls() {
+  document.querySelectorAll(".theme-tile").forEach(tile => {
+    const val = tile.getAttribute("data-theme-val");
+    tile.classList.toggle("active", val === appearanceState.theme);
+  });
+
+  document.querySelectorAll(".accent-swatch").forEach(swatch => {
+    const val = swatch.getAttribute("data-accent-val");
+    swatch.classList.toggle("active", val === appearanceState.accent);
+  });
+
+  document.querySelectorAll("#contrast-segmented .segmented-btn").forEach(btn => {
+    const val = btn.getAttribute("data-contrast-val");
+    btn.classList.toggle("active", val === appearanceState.contrast);
+  });
+
+  const uiFontSelect = document.getElementById("ui-font-select");
+  if (uiFontSelect && uiFontSelect.value !== appearanceState.uiFont) {
+    uiFontSelect.value = appearanceState.uiFont;
+  }
+
+  document.querySelectorAll("#ui-size-segmented .segmented-btn").forEach(btn => {
+    const val = btn.getAttribute("data-ui-size-val");
+    btn.classList.toggle("active", val === appearanceState.uiSize);
+  });
+
+  const settingsTestFont = document.getElementById("settings-test-font-select");
+  if (settingsTestFont && settingsTestFont.value !== appearanceState.testFont) {
+    settingsTestFont.value = appearanceState.testFont;
+  }
+
+  const headerTestFont = document.getElementById("test-font-family-select");
+  if (headerTestFont && headerTestFont.value !== appearanceState.testFont) {
+    headerTestFont.value = appearanceState.testFont;
+  }
+
+  updateTestSizeDisplays();
+}
+
+function openSettingsModal() {
+  renderSettingsControls();
+  const modal = document.getElementById("settings-modal");
+  if (modal) modal.classList.remove("hidden");
+}
+
+function closeSettingsModal() {
+  const modal = document.getElementById("settings-modal");
+  if (modal) modal.classList.add("hidden");
+}
+
+// App Sidebar State & Management
+function toggleSidebar() {
+  const sidebar = document.getElementById("app-sidebar");
+  const backdrop = document.getElementById("app-sidebar-backdrop");
+  if (!sidebar) return;
+
+  const isMobile = window.innerWidth <= 768;
+  if (isMobile) {
+    const isOpen = sidebar.classList.toggle("open");
+    if (backdrop) backdrop.classList.toggle("hidden", !isOpen);
+  } else {
+    const isCollapsed = sidebar.classList.toggle("collapsed");
+    try {
+      localStorage.setItem("ts_sidebar_collapsed", isCollapsed ? "true" : "false");
+    } catch (e) {}
+  }
+}
+
+function closeSidebarMobile() {
+  const sidebar = document.getElementById("app-sidebar");
+  const backdrop = document.getElementById("app-sidebar-backdrop");
+  if (sidebar) sidebar.classList.remove("open");
+  if (backdrop) backdrop.classList.add("hidden");
+}
+
+function initSidebarState() {
+  const sidebar = document.getElementById("app-sidebar");
+  if (!sidebar) return;
+  const isMobile = window.innerWidth <= 768;
+  if (!isMobile) {
+    try {
+      const savedCollapsed = localStorage.getItem("ts_sidebar_collapsed");
+      if (savedCollapsed === "true") {
+        sidebar.classList.add("collapsed");
+      }
+    } catch (e) {}
+  }
+}
+
+// Wire Settings & Sidebar Event Listeners
+function setupAppearanceAndSidebarListeners() {
+  const topbarSettingsBtn = document.getElementById("topbar-settings-btn");
+  if (topbarSettingsBtn) {
+    topbarSettingsBtn.addEventListener("click", openSettingsModal);
+  }
+
+  const navSettingsBtn = document.getElementById("nav-item-settings");
+  if (navSettingsBtn) {
+    navSettingsBtn.addEventListener("click", () => {
+      closeSidebarMobile();
+      openSettingsModal();
+    });
+  }
+
+  const settingsModalClose = document.getElementById("settings-modal-close");
+  if (settingsModalClose) {
+    settingsModalClose.addEventListener("click", closeSettingsModal);
+  }
+  const settingsModal = document.getElementById("settings-modal");
+  if (settingsModal) {
+    settingsModal.addEventListener("click", (e) => {
+      if (e.target === settingsModal) closeSettingsModal();
+    });
+  }
+
+  document.querySelectorAll(".theme-tile").forEach(tile => {
+    tile.addEventListener("click", () => {
+      const val = tile.getAttribute("data-theme-val");
+      if (val) setTheme(val);
+    });
+  });
+
+  document.querySelectorAll(".accent-swatch").forEach(swatch => {
+    swatch.addEventListener("click", () => {
+      const val = swatch.getAttribute("data-accent-val");
+      if (val) setAccent(val);
+    });
+  });
+
+  document.querySelectorAll("#contrast-segmented .segmented-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const val = btn.getAttribute("data-contrast-val");
+      if (val) setContrast(val);
+    });
+  });
+
+  const uiFontSelect = document.getElementById("ui-font-select");
+  if (uiFontSelect) {
+    uiFontSelect.addEventListener("change", (e) => setUiFont(e.target.value));
+  }
+
+  document.querySelectorAll("#ui-size-segmented .segmented-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const val = btn.getAttribute("data-ui-size-val");
+      if (val) setUiSize(val);
+    });
+  });
+
+  const settingsTestFont = document.getElementById("settings-test-font-select");
+  if (settingsTestFont) {
+    settingsTestFont.addEventListener("change", (e) => setTestFont(e.target.value));
+  }
+  const settingsTestDec = document.getElementById("settings-test-font-dec");
+  if (settingsTestDec) {
+    settingsTestDec.addEventListener("click", () => adjustTestSize(-10));
+  }
+  const settingsTestInc = document.getElementById("settings-test-font-inc");
+  if (settingsTestInc) {
+    settingsTestInc.addEventListener("click", () => adjustTestSize(10));
+  }
+  const settingsTestReset = document.getElementById("settings-test-font-reset");
+  if (settingsTestReset) {
+    settingsTestReset.addEventListener("click", resetTestSize);
+  }
+
+  const headerTestFont = document.getElementById("test-font-family-select");
+  if (headerTestFont) {
+    headerTestFont.addEventListener("change", (e) => setTestFont(e.target.value));
+  }
+  const headerTestDec = document.getElementById("btn-test-font-decrease");
+  if (headerTestDec) {
+    headerTestDec.addEventListener("click", () => adjustTestSize(-10));
+  }
+  const headerTestInc = document.getElementById("btn-test-font-increase");
+  if (headerTestInc) {
+    headerTestInc.addEventListener("click", () => adjustTestSize(10));
+  }
+  const headerTestReset = document.getElementById("btn-test-font-reset");
+  if (headerTestReset) {
+    headerTestReset.addEventListener("click", resetTestSize);
+  }
+
+  const sidebarToggle = document.getElementById("app-sidebar-toggle");
+  if (sidebarToggle) {
+    sidebarToggle.addEventListener("click", toggleSidebar);
+  }
+  const sidebarClose = document.getElementById("app-sidebar-close-btn");
+  if (sidebarClose) {
+    sidebarClose.addEventListener("click", () => {
+      if (window.innerWidth <= 768) {
+        closeSidebarMobile();
+      } else {
+        toggleSidebar();
+      }
+    });
+  }
+  const sidebarBackdrop = document.getElementById("app-sidebar-backdrop");
+  if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener("click", closeSidebarMobile);
+  }
+
+  const navDashboard = document.getElementById("nav-item-dashboard");
+  if (navDashboard) {
+    navDashboard.addEventListener("click", () => {
+      closeSidebarMobile();
+      showView("view-app");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+  const navProfile = document.getElementById("nav-item-profile");
+  if (navProfile) {
+    navProfile.addEventListener("click", () => {
+      closeSidebarMobile();
+      if (typeof openProfileModal === "function") openProfileModal(false);
+    });
+  }
+  const sidebarUser = document.getElementById("app-sidebar-user");
+  if (sidebarUser) {
+    sidebarUser.addEventListener("click", () => {
+      closeSidebarMobile();
+      if (typeof openProfileModal === "function") openProfileModal(false);
+    });
+  }
+  const sidebarSignout = document.getElementById("sidebar-signout-btn");
+  if (sidebarSignout) {
+    sidebarSignout.addEventListener("click", () => signOut(auth));
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      const settingsModal = document.getElementById("settings-modal");
+      if (settingsModal && !settingsModal.classList.contains("hidden")) {
+        closeSettingsModal();
+        return;
+      }
+      const profileModal = document.getElementById("profile-modal");
+      if (profileModal && !profileModal.classList.contains("hidden")) {
+        profileModal.classList.add("hidden");
+        return;
+      }
+      closeSidebarMobile();
+    }
+  });
+
+  const legacyToggle = document.getElementById("theme-toggle");
+  if (legacyToggle) {
+    legacyToggle.addEventListener("click", () => {
+      const next = appearanceState.theme === "dark" ? "light" : "dark";
+      setTheme(next);
+    });
+  }
+}
+
+// Run appearance and sidebar initialization
+loadAppearanceSettings();
+initSidebarState();
+setupAppearanceAndSidebarListeners();
 
 (function setClockHands() {
   const now = new Date();
@@ -197,13 +590,32 @@ let currentUserProfile = null;
 
 function renderUserIdentity() {
   const whoamiEl = document.getElementById("whoami");
-  if (!whoamiEl) return;
+  const sidebarName = document.getElementById("sidebar-user-name");
+  const sidebarMeta = document.getElementById("sidebar-user-meta");
+  const sidebarAvatar = document.getElementById("sidebar-user-avatar");
+
   if (currentUserProfile && currentUserProfile.fullName && currentUserProfile.username) {
-    whoamiEl.textContent = `${currentUserProfile.fullName} (@${currentUserProfile.username})`;
+    if (whoamiEl) whoamiEl.textContent = `${currentUserProfile.fullName} (@${currentUserProfile.username})`;
+    if (sidebarName) sidebarName.textContent = currentUserProfile.fullName;
+    if (sidebarMeta) sidebarMeta.textContent = `@${currentUserProfile.username}`;
+    if (sidebarAvatar) {
+      if (currentUserProfile.photoURL) {
+        sidebarAvatar.innerHTML = `<img src="${currentUserProfile.photoURL}" alt="avatar" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+      } else {
+        sidebarAvatar.textContent = (currentUserProfile.fullName[0] || "👤").toUpperCase();
+      }
+    }
   } else if (auth.currentUser) {
-    whoamiEl.textContent = auth.currentUser.email;
+    const emailPrefix = (auth.currentUser.email || "Student").split("@")[0];
+    if (whoamiEl) whoamiEl.textContent = auth.currentUser.email;
+    if (sidebarName) sidebarName.textContent = emailPrefix;
+    if (sidebarMeta) sidebarMeta.textContent = auth.currentUser.email;
+    if (sidebarAvatar) sidebarAvatar.textContent = (emailPrefix[0] || "👤").toUpperCase();
   } else {
-    whoamiEl.textContent = "";
+    if (whoamiEl) whoamiEl.textContent = "";
+    if (sidebarName) sidebarName.textContent = "Student Profile";
+    if (sidebarMeta) sidebarMeta.textContent = "Set up profile";
+    if (sidebarAvatar) sidebarAvatar.textContent = "👤";
   }
 }
 
@@ -258,6 +670,7 @@ async function routeUser(user) {
     showView("view-verify");
   } else {
     currentUserProfile = null;
+    userPausedTests = {};
     renderUserIdentity();
     renderAuthMode();
     if (pendingNotice) showAuthNotice(pendingNotice.ok, pendingNotice.text);
@@ -643,6 +1056,7 @@ if (profileSaveBtn) {
 let subjectsCache = [];
 let navSubject = null; 
 let navType = null;    
+let userPausedTests = {}; // subjectId -> inProgressDraft
 
 const folderIconSvg = `<svg class="folder-icon" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
 
@@ -673,6 +1087,48 @@ async function loadSubjects() {
     } catch {
       s.questionCount = 0;
     }
+  }
+
+  // Load in-progress paused tests for the authenticated student from multi-layer storage
+  if (auth.currentUser) {
+    userPausedTests = {};
+
+    // 1. Check localStorage first (instant local persistence on this machine)
+    try {
+      const prefix = `ts_paused_${auth.currentUser.uid}_`;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) {
+          const sid = k.substring(prefix.length);
+          try {
+            userPausedTests[sid] = JSON.parse(localStorage.getItem(k));
+          } catch {}
+        }
+      }
+    } catch (e) {}
+
+    // 2. Check users/{uid} document in Firestore Cloud (cross-device persistent cloud storage)
+    try {
+      const userSnap = await getDoc(doc(db, "users", auth.currentUser.uid));
+      if (userSnap.exists()) {
+        const uData = userSnap.data();
+        if (uData && uData.inProgressTests) {
+          Object.assign(userPausedTests, uData.inProgressTests);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not read inProgressTests from users/{uid}:", e);
+    }
+
+    // 3. Check inProgressTests collection if accessible
+    try {
+      const pausedSnap = await getDocs(collection(db, "inProgressTests", auth.currentUser.uid, "tests"));
+      pausedSnap.forEach(d => {
+        userPausedTests[d.id] = d.data();
+      });
+    } catch (e) {}
+  } else {
+    userPausedTests = {};
   }
   
   renderExamSelectOptions();
@@ -766,6 +1222,9 @@ async function renderTestList() {
       const editBtn = isAdmin ? `<button class="btn btn-sm edit-btn" style="background-color: var(--primary); color: white; margin-left: 8px; border: none;" data-edit-id="${t.id}">Edit</button>` : "";
       const deleteBtn = isAdmin ? `<button class="btn btn-sm delete-btn" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${t.id}">Delete</button>` : "";
 
+      const pausedDraft = userPausedTests[t.id];
+      const isPaused = !!pausedDraft;
+
       let lastAttempt = null;
       try {
         const attemptSnap = await getDocs(query(
@@ -781,10 +1240,29 @@ async function renderTestList() {
       } catch (e) { /* no prior attempt, or not readable yet — treat as unattempted */ }
 
       const pct = lastAttempt && lastAttempt.total > 0 ? Math.round((lastAttempt.correct / lastAttempt.total) * 100) : null;
-      const attemptBadge = lastAttempt
+      let attemptBadge = lastAttempt
         ? `<div class="test-row-meta" style="color:var(--success);margin-top:4px;">Attempted · last score ${pct}%</div>`
         : "";
-      const startLabel = hasQuestions ? (lastAttempt ? "Retake test" : "Start test") : "No questions yet";
+
+      if (isPaused) {
+        const remSec = pausedDraft.remainingSeconds || 0;
+        const mm = String(Math.floor(remSec / 60)).padStart(2, "0");
+        const ss = String(remSec % 60).padStart(2, "0");
+        const ansCount = Object.keys(pausedDraft.answers || {}).length;
+        const totalQ = (pausedDraft.questionIds || []).length || t.questionCount || 0;
+        attemptBadge = `<div class="paused-badge">⏸️ In Progress · ${mm}:${ss} left (${ansCount}/${totalQ} answered)</div>`;
+      }
+
+      let startLabel = hasQuestions ? (lastAttempt ? "Retake test" : "Start test") : "No questions yet";
+      let startBtnStyle = "";
+      if (isPaused) {
+        startLabel = "▶️ Resume test";
+        startBtnStyle = "background-color: var(--accent); color: white; border-color: var(--accent);";
+      }
+
+      const discardBtn = isPaused
+        ? `<button class="btn btn-quiet btn-sm discard-draft-btn" style="color:var(--danger);font-size:12px;" data-subject-id="${t.id}" title="Discard paused attempt and start fresh">Discard</button>`
+        : "";
 
       const dragHandle = isAdmin ? `<span class="drag-handle" title="Drag to reorder">⠿</span>` : "";
 
@@ -802,9 +1280,10 @@ async function renderTestList() {
           </div>
         </div>
         <div style="display: flex; align-items: center; gap:4px;">
-          <button class="btn btn-primary btn-sm start-btn" ${hasQuestions ? "" : "disabled"} data-subject-id="${t.id}">
+          <button class="btn btn-primary btn-sm start-btn" style="${startBtnStyle}" ${hasQuestions ? "" : "disabled"} data-subject-id="${t.id}" data-is-paused="${isPaused}">
             ${startLabel}
           </button>
+          ${discardBtn}
           ${upBtn}${downBtn}${editBtn}${deleteBtn}
         </div>
       `;
@@ -846,8 +1325,23 @@ async function renderTestList() {
       listEl.appendChild(row);
     }
 
+    listEl.querySelectorAll(".discard-draft-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        discardPausedTest(btn.getAttribute("data-subject-id"), false);
+      });
+    });
+
     listEl.querySelectorAll(".start-btn").forEach(btn => {
-      btn.addEventListener("click", () => startTest(btn.getAttribute("data-subject-id")));
+      btn.addEventListener("click", () => {
+        const sid = btn.getAttribute("data-subject-id");
+        const isP = btn.getAttribute("data-is-paused") === "true";
+        if (isP) {
+          openResumeConfirmModal(sid);
+        } else {
+          startTest(sid);
+        }
+      });
     });
 
     if (isAdmin) {
@@ -1868,8 +2362,32 @@ let currentIndex = 0;
 let timerInterval = null;
 let endTime = 0;
 let isTestActive = false;
+let isTestPaused = false;
+let pausedRemainingSeconds = 0;
+let pendingResumeSubjectId = null;
 
-async function startTest(subjectId) {
+function formatRemainingTime(totalSec) {
+  const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
+  const ss = String(totalSec % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+async function startTest(subjectId, forceFresh = false) {
+  // If there's an unfinished paused attempt and fresh was not forced, open resume prompt
+  if (!forceFresh && userPausedTests && userPausedTests[subjectId]) {
+    openResumeConfirmModal(subjectId);
+    return;
+  }
+
+  // If forceFresh is true, remove any existing draft from persistent storage
+  if (forceFresh && userPausedTests && userPausedTests[subjectId]) {
+    try {
+      await removePausedDraft(subjectId);
+    } catch (e) {
+      console.warn("Could not delete draft before starting fresh:", e);
+    }
+  }
+
   currentSubject = subjectsCache.find(s => s.id === subjectId);
   if (!currentSubject) return;
 
@@ -1882,6 +2400,7 @@ async function startTest(subjectId) {
   marked = new Set();
   visited = new Set();
   currentIndex = 0;
+  isTestPaused = false;
 
   document.getElementById("test-subject-name").textContent = `${currentSubject.subject} - ${currentSubject.testName}`;
   const durationMin = currentSubject.durationMinutes || 30;
@@ -1889,6 +2408,7 @@ async function startTest(subjectId) {
   isTestActive = true;
 
   showView("view-test");
+  applyPaletteState();
   renderQuestion();
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(tickTimer, 250);
@@ -1896,19 +2416,363 @@ async function startTest(subjectId) {
 }
 
 function tickTimer() {
+  if (isTestPaused) return;
   const remainingMs = endTime - Date.now();
   const timerEl = document.getElementById("timer");
+  const headerTimerEl = document.getElementById("timer-header");
+  const headerTimerWrap = document.getElementById("header-timer");
+
   if (remainingMs <= 0) {
-    timerEl.textContent = "00:00";
-    clearInterval(timerInterval);
+    if (timerEl) timerEl.textContent = "00:00";
+    if (headerTimerEl) headerTimerEl.textContent = "00:00";
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
     submitTest();
     return;
   }
   const totalSec = Math.floor(remainingMs / 1000);
-  const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
-  const ss = String(totalSec % 60).padStart(2, "0");
-  timerEl.textContent = `${mm}:${ss}`;
-  timerEl.classList.toggle("low", totalSec < 5 * 60);
+  const timeStr = formatRemainingTime(totalSec);
+  const isLow = totalSec < 5 * 60;
+
+  if (timerEl) {
+    timerEl.textContent = timeStr;
+    timerEl.classList.toggle("low", isLow);
+  }
+  if (headerTimerEl) {
+    headerTimerEl.textContent = timeStr;
+  }
+  if (headerTimerWrap) {
+    headerTimerWrap.classList.toggle("low", isLow);
+  }
+}
+
+async function savePausedDraft(subjectId, draftData) {
+  let saved = false;
+
+  // 1. Keep in memory immediately
+  userPausedTests[subjectId] = { ...draftData };
+
+  // 2. localStorage (instant local persistence on this browser / machine)
+  try {
+    localStorage.setItem(`ts_paused_${auth.currentUser.uid}_${subjectId}`, JSON.stringify(draftData));
+    saved = true;
+  } catch (lsErr) {
+    console.warn("localStorage write error:", lsErr);
+  }
+
+  // 3. Firestore users/{uid} document (cloud persistent across devices with existing rules)
+  try {
+    const userRef = doc(db, "users", auth.currentUser.uid);
+    await setDoc(userRef, {
+      inProgressTests: {
+        [subjectId]: draftData
+      }
+    }, { merge: true });
+    saved = true;
+  } catch (userErr) {
+    console.warn("Firestore users/{uid} write error:", userErr);
+  }
+
+  // 4. Also try dedicated inProgressTests collection (if rules deployed in Firebase Console)
+  try {
+    await setDoc(doc(db, "inProgressTests", auth.currentUser.uid, "tests", subjectId), draftData);
+    saved = true;
+  } catch (collErr) {
+    // Graceful fallback: users/{uid} and localStorage already secured the draft
+  }
+
+  return saved;
+}
+
+async function removePausedDraft(subjectId) {
+  delete userPausedTests[subjectId];
+
+  // 1. Remove from localStorage
+  try {
+    localStorage.removeItem(`ts_paused_${auth.currentUser.uid}_${subjectId}`);
+  } catch (e) {}
+
+  // 2. Remove from users/{uid} in Firestore
+  try {
+    await updateDoc(doc(db, "users", auth.currentUser.uid), {
+      [`inProgressTests.${subjectId}`]: deleteField()
+    });
+  } catch (e) {}
+
+  // 3. Remove from inProgressTests collection in Firestore
+  try {
+    await deleteDoc(doc(db, "inProgressTests", auth.currentUser.uid, "tests", subjectId));
+  } catch (e) {}
+}
+
+async function pauseTest() {
+  if (!isTestActive || isTestPaused || !currentSubject) return;
+
+  // 1. Stop timer interval immediately
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+
+  const remainingMs = Math.max(0, endTime - Date.now());
+  pausedRemainingSeconds = Math.max(1, Math.floor(remainingMs / 1000));
+  isTestActive = false;
+  isTestPaused = true;
+
+  // Freeze the timer display immediately in both palette and header
+  const frozenTime = formatRemainingTime(pausedRemainingSeconds);
+  const timerEl = document.getElementById("timer");
+  if (timerEl) timerEl.textContent = frozenTime;
+  const headerTimerEl = document.getElementById("timer-header");
+  if (headerTimerEl) headerTimerEl.textContent = frozenTime;
+
+  // 2. Open pause modal with live test stats
+  const answeredCount = Object.keys(answers).length;
+  const markedCount = marked.size;
+  const totalCount = currentQuestions.length;
+
+  document.getElementById("pause-stat-name").textContent = currentSubject.testName || currentSubject.name || currentSubject.subject;
+  document.getElementById("pause-stat-time").textContent = formatRemainingTime(pausedRemainingSeconds);
+  document.getElementById("pause-stat-answered").textContent = `${answeredCount} of ${totalCount} questions`;
+  document.getElementById("pause-stat-marked").textContent = `${markedCount} questions`;
+
+  const savingInd = document.getElementById("pause-saving-indicator");
+  const errEl = document.getElementById("pause-error-msg");
+  savingInd.classList.remove("hidden");
+  errEl.classList.add("hidden");
+  errEl.textContent = "";
+
+  document.getElementById("pause-modal").classList.remove("hidden");
+
+  // 3. Prepare payload for persistent storage
+  const draftData = {
+    uid: auth.currentUser.uid,
+    subjectId: currentSubject.id,
+    testName: currentSubject.testName || currentSubject.name || currentSubject.subject || "Untitled Test",
+    subject: currentSubject.subject || "General",
+    durationMinutes: currentSubject.durationMinutes || 30,
+    questionIds: currentQuestions.map(q => q.id),
+    currentIndex: currentIndex,
+    remainingSeconds: pausedRemainingSeconds,
+    answers: { ...answers },
+    marked: Array.from(marked),
+    visited: Array.from(visited),
+    pausedAt: Date.now(),
+    updatedAt: Date.now()
+  };
+
+  const saved = await savePausedDraft(currentSubject.id, draftData);
+  savingInd.classList.add("hidden");
+
+  if (!saved) {
+    errEl.textContent = "Could not save progress to the cloud. Your in-memory answers are safe. You can resume now or retry pausing.";
+    errEl.classList.remove("hidden");
+  }
+}
+
+function resumeTestFromModal() {
+  document.getElementById("pause-modal").classList.add("hidden");
+  document.getElementById("pause-error-msg").classList.add("hidden");
+
+  // Resume countdown from exact preserved seconds
+  endTime = Date.now() + (pausedRemainingSeconds * 1000);
+  isTestActive = true;
+  isTestPaused = false;
+
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(tickTimer, 250);
+  tickTimer();
+
+  renderQuestion();
+}
+
+async function exitPausedTestToDashboard() {
+  document.getElementById("pause-modal").classList.add("hidden");
+  document.getElementById("pause-error-msg").classList.add("hidden");
+
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  isTestActive = false;
+  isTestPaused = false;
+  navSubject = null;
+  navType = null;
+
+  showView("view-app");
+  await loadSubjects();
+}
+
+function openResumeConfirmModal(subjectId) {
+  pendingResumeSubjectId = subjectId;
+  const draft = userPausedTests[subjectId];
+  const subj = subjectsCache.find(s => s.id === subjectId);
+  const testTitle = (subj && (subj.testName || subj.name)) || (draft && draft.testName) || "Test";
+
+  document.getElementById("resume-modal-testname").textContent = testTitle;
+
+  const modalDetails = document.getElementById("resume-modal-details");
+  if (draft) {
+    const remSec = draft.remainingSeconds || 0;
+    const answeredCount = Object.keys(draft.answers || {}).length;
+    const totalQ = (draft.questionIds || []).length || (subj ? subj.questionCount : 0);
+    const markedCount = (draft.marked || []).length;
+
+    modalDetails.innerHTML = `
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <div><strong>Time Remaining:</strong> <span style="font-family:var(--font-mono); color:var(--primary); font-size:14px;">${formatRemainingTime(remSec)}</span></div>
+        <div><strong>Questions Answered:</strong> ${answeredCount} / ${totalQ}</div>
+        <div><strong>Marked for Review:</strong> ${markedCount}</div>
+        <div><strong>Last Position:</strong> Q ${(draft.currentIndex || 0) + 1}</div>
+      </div>
+    `;
+  } else {
+    modalDetails.innerHTML = `<div>Saved progress was found. Click below to resume your attempt.</div>`;
+  }
+
+  document.getElementById("resume-confirm-modal").classList.remove("hidden");
+}
+
+async function resumeTest(subjectId) {
+  document.getElementById("resume-confirm-modal").classList.add("hidden");
+
+  let draft = userPausedTests[subjectId];
+  if (!draft) {
+    // 1. Try localStorage
+    try {
+      const local = localStorage.getItem(`ts_paused_${auth.currentUser.uid}_${subjectId}`);
+      if (local) draft = JSON.parse(local);
+    } catch (e) {}
+  }
+  if (!draft) {
+    // 2. Try users/{uid}
+    try {
+      const uSnap = await getDoc(doc(db, "users", auth.currentUser.uid));
+      if (uSnap.exists() && uSnap.data().inProgressTests) {
+        draft = uSnap.data().inProgressTests[subjectId];
+      }
+    } catch (e) {}
+  }
+  if (!draft) {
+    // 3. Try inProgressTests subcollection
+    try {
+      const snap = await getDoc(doc(db, "inProgressTests", auth.currentUser.uid, "tests", subjectId));
+      if (snap.exists()) {
+        draft = snap.data();
+      }
+    } catch (e) {}
+  }
+
+  if (!draft) {
+    alert("Could not locate saved progress for this test. Starting a fresh attempt.");
+    startTest(subjectId, true);
+    return;
+  }
+
+  currentSubject = subjectsCache.find(s => s.id === subjectId);
+  if (!currentSubject) {
+    try {
+      const sDoc = await getDoc(doc(db, "subjects", subjectId));
+      if (sDoc.exists()) {
+        currentSubject = { id: sDoc.id, ...sDoc.data() };
+      }
+    } catch {}
+  }
+  if (!currentSubject) {
+    alert("Test configuration could not be loaded.");
+    return;
+  }
+
+  // Load latest questions from Firestore
+  const snap = await getDocs(collection(db, "subjects", subjectId, "questions"));
+  const qMap = new Map();
+  snap.forEach(d => qMap.set(d.id, { id: d.id, ...d.data() }));
+
+  if (qMap.size === 0) {
+    alert("This test no longer has any questions available.");
+    return;
+  }
+
+  // Reconstruct questions according to draft order
+  currentQuestions = [];
+  let missingCount = 0;
+  if (Array.isArray(draft.questionIds) && draft.questionIds.length > 0) {
+    draft.questionIds.forEach(qid => {
+      if (qMap.has(qid)) {
+        currentQuestions.push(qMap.get(qid));
+      } else {
+        missingCount++;
+      }
+    });
+    // Append any new questions added by admin since pause
+    qMap.forEach((q, qid) => {
+      if (!draft.questionIds.includes(qid)) {
+        currentQuestions.push(q);
+      }
+    });
+  } else {
+    snap.forEach(d => currentQuestions.push({ id: d.id, ...d.data() }));
+  }
+
+  if (missingCount > 0) {
+    alert(`Notice: ${missingCount} question(s) were modified or removed since your test was paused. Your answers to the remaining questions have been restored.`);
+  }
+
+  // Restore answers, marked, visited
+  const validQIds = new Set(currentQuestions.map(q => q.id));
+  answers = {};
+  if (draft.answers) {
+    Object.keys(draft.answers).forEach(qid => {
+      if (validQIds.has(qid)) {
+        answers[qid] = draft.answers[qid];
+      }
+    });
+  }
+  marked = new Set((draft.marked || []).filter(qid => validQIds.has(qid)));
+  visited = new Set((draft.visited || []).filter(qid => validQIds.has(qid)));
+
+  currentIndex = Math.max(0, Math.min(draft.currentIndex || 0, currentQuestions.length - 1));
+
+  document.getElementById("test-subject-name").textContent = `${currentSubject.subject} - ${currentSubject.testName}`;
+
+  pausedRemainingSeconds = Math.max(1, draft.remainingSeconds || (currentSubject.durationMinutes || 30) * 60);
+  endTime = Date.now() + (pausedRemainingSeconds * 1000);
+  isTestActive = true;
+  isTestPaused = false;
+
+  showView("view-test");
+  applyPaletteState();
+  renderQuestion();
+
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(tickTimer, 250);
+  tickTimer();
+}
+
+async function discardPausedTest(subjectId, startFresh = false) {
+  if (!confirm("Are you sure you want to discard this paused attempt? All saved answers and progress will be permanently lost.")) {
+    return;
+  }
+
+  await removePausedDraft(subjectId);
+
+  document.getElementById("resume-confirm-modal").classList.add("hidden");
+  document.getElementById("pause-modal").classList.add("hidden");
+
+  if (startFresh) {
+    await startTest(subjectId, true);
+  } else {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    isTestActive = false;
+    isTestPaused = false;
+    showView("view-app");
+    await loadSubjects();
+  }
 }
 
 function renderQuestion() {
@@ -1986,8 +2850,98 @@ document.getElementById("btn-submit-test").addEventListener("click", () => {
   }
 });
 
+// Pause & Resume control listeners
+const btnPauseTest = document.getElementById("btn-pause-test");
+if (btnPauseTest) btnPauseTest.addEventListener("click", pauseTest);
+
+const btnPauseHeader = document.getElementById("btn-pause-test-header");
+if (btnPauseHeader) btnPauseHeader.addEventListener("click", pauseTest);
+
+const btnPauseAlt = document.getElementById("btn-pause-test-alt");
+if (btnPauseAlt) btnPauseAlt.addEventListener("click", pauseTest);
+
+const btnResumePaused = document.getElementById("btn-resume-paused");
+if (btnResumePaused) btnResumePaused.addEventListener("click", resumeTestFromModal);
+
+const btnExitDashboard = document.getElementById("btn-exit-to-dashboard");
+if (btnExitDashboard) btnExitDashboard.addEventListener("click", exitPausedTestToDashboard);
+
+const btnDiscardActive = document.getElementById("btn-discard-active-paused");
+if (btnDiscardActive) btnDiscardActive.addEventListener("click", () => {
+  if (currentSubject) discardPausedTest(currentSubject.id, false);
+});
+
+const btnConfirmResume = document.getElementById("btn-confirm-resume");
+if (btnConfirmResume) btnConfirmResume.addEventListener("click", () => {
+  if (pendingResumeSubjectId) resumeTest(pendingResumeSubjectId);
+});
+
+const btnConfirmDiscard = document.getElementById("btn-confirm-discard");
+if (btnConfirmDiscard) btnConfirmDiscard.addEventListener("click", () => {
+  if (pendingResumeSubjectId) discardPausedTest(pendingResumeSubjectId, true);
+});
+
+const btnCancelResumeModal = document.getElementById("btn-cancel-resume-modal");
+if (btnCancelResumeModal) btnCancelResumeModal.addEventListener("click", () => {
+  document.getElementById("resume-confirm-modal").classList.add("hidden");
+});
+
+// ============================================================
+// Collapsible Question Palette Sidebar
+// ============================================================
+let isPaletteCollapsed = sessionStorage.getItem("ts_palette_collapsed") === "true";
+
+function applyPaletteState() {
+  const shell = document.getElementById("test-shell") || document.querySelector(".test-shell");
+  const reopenTab = document.getElementById("palette-reopen-tab");
+  const toggleBtn = document.getElementById("btn-toggle-palette-header");
+  const toggleText = document.getElementById("palette-toggle-text");
+  const toggleIcon = document.getElementById("palette-toggle-icon");
+  const submitInline = document.getElementById("btn-submit-inline");
+
+  if (!shell) return;
+  shell.classList.toggle("palette-collapsed", isPaletteCollapsed);
+
+  if (reopenTab) reopenTab.classList.toggle("hidden", !isPaletteCollapsed);
+  if (submitInline) submitInline.classList.toggle("hidden", !isPaletteCollapsed);
+
+  if (toggleText) toggleText.textContent = isPaletteCollapsed ? "Show Palette" : "Hide Palette";
+  if (toggleIcon) toggleIcon.textContent = isPaletteCollapsed ? "⇤" : "⇥";
+  if (toggleBtn) {
+    toggleBtn.title = isPaletteCollapsed ? "Show Question Palette" : "Hide Question Palette";
+  }
+}
+
+function togglePalette() {
+  isPaletteCollapsed = !isPaletteCollapsed;
+  try {
+    sessionStorage.setItem("ts_palette_collapsed", isPaletteCollapsed ? "true" : "false");
+  } catch (e) {}
+  applyPaletteState();
+}
+
+const btnCollapsePalette = document.getElementById("btn-collapse-palette");
+if (btnCollapsePalette) btnCollapsePalette.addEventListener("click", togglePalette);
+
+const btnTogglePaletteHeader = document.getElementById("btn-toggle-palette-header");
+if (btnTogglePaletteHeader) btnTogglePaletteHeader.addEventListener("click", togglePalette);
+
+const paletteReopenTab = document.getElementById("palette-reopen-tab");
+if (paletteReopenTab) paletteReopenTab.addEventListener("click", togglePalette);
+
+const btnSubmitInline = document.getElementById("btn-submit-inline");
+if (btnSubmitInline) {
+  btnSubmitInline.addEventListener("click", () => {
+    if (confirm("Submit the test now? You can't change answers after this.")) {
+      clearInterval(timerInterval);
+      submitTest();
+    }
+  });
+}
+
 async function submitTest() {
   isTestActive = false; 
+  isTestPaused = false;
   let correct = 0, wrong = 0, unattempted = 0;
   const topicStats = {};
   const reviewData = [];
@@ -2020,6 +2974,13 @@ async function submitTest() {
       topicStats,
       submittedAt: serverTimestamp()
     });
+
+    // Successfully submitted attempt! Delete paused draft if one exists:
+    try {
+      await removePausedDraft(currentSubject.id);
+    } catch (cleanErr) {
+      console.warn("Could not remove paused draft after submission:", cleanErr);
+    }
   } catch (e) {
     console.error("Could not save attempt:", e);
   }
@@ -2107,9 +3068,9 @@ function escapeHtml(str) {
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden && isTestActive) {
+  if (document.hidden && isTestActive && !isTestPaused) {
     alert("Anti-Cheating Alert: You left the test tab! Your test has been automatically submitted.");
-    clearInterval(timerInterval);
+    if (timerInterval) clearInterval(timerInterval);
     submitTest();
   }
 });
@@ -2118,14 +3079,20 @@ const homeLink = document.getElementById("home-link");
 if (homeLink) {
   homeLink.addEventListener("click", () => {
     if (!auth.currentUser) return; 
-    if (isTestActive) {
-      if (confirm("Warning: You are in the middle of a test. If you go to the Dashboard, your test will be automatically submitted. Continue?")) {
-        clearInterval(timerInterval);
-        submitTest();
+    if (isTestActive && !isTestPaused) {
+      if (confirm("You are currently taking a test. Would you like to pause and save your test to return to the Dashboard? Click OK to Pause & Exit, or Cancel to continue your test.")) {
+        pauseTest().then(() => {
+          exitPausedTestToDashboard();
+        });
       }
     } else {
-      showView("view-app");
-      loadSubjects();
+      if (isTestPaused) {
+        exitPausedTestToDashboard();
+      } else {
+        showView("view-app");
+        loadSubjects();
+      }
     }
   });
 }
+

@@ -45,5 +45,10 @@ service cloud.firestore {
       allow delete: if request.auth != null 
                     && resource.data.uid == request.auth.uid;
     }
+
+    // In-Progress / Paused test drafts (Pause & Resume)
+    match /inProgressTests/{userId}/tests/{testId} {
+      allow read, write, delete: if request.auth != null && request.auth.uid == userId;
+    }
   }
 }
