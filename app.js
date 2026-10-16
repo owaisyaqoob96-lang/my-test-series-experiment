@@ -43,12 +43,12 @@ function showView(name) {
 // Appearance Design System & Settings Manager
 // ============================================================
 const APPEARANCE_DEFAULTS = {
-  theme: "dark",
-  accent: "blue",
+  theme: "light",
+  accent: "purple",
   contrast: "standard",
   uiFont: "system",
   uiSize: "medium",
-  testFont: "times",
+  testFont: "oxygen",
   testSize: 100 // percent (80% to 150%)
 };
 
@@ -2780,6 +2780,20 @@ function renderQuestion() {
   visited.add(q.id);
 
   document.getElementById("q-count").textContent = `Q ${currentIndex + 1} / ${currentQuestions.length}`;
+  const badgeEl = document.getElementById("q-number-badge");
+  if (badgeEl) badgeEl.textContent = `Question ${currentIndex + 1}`;
+
+  const flagBtn = document.getElementById("btn-flag-toggle");
+  const isFlagged = marked.has(q.id);
+  if (flagBtn) {
+    flagBtn.classList.toggle("flagged", isFlagged);
+    flagBtn.setAttribute("aria-pressed", isFlagged ? "true" : "false");
+    const flagIcon = document.getElementById("flag-icon");
+    const flagText = document.getElementById("flag-text");
+    if (flagIcon) flagIcon.textContent = isFlagged ? "⚑" : "⚐";
+    if (flagText) flagText.textContent = isFlagged ? "Flagged for Review" : "Flag for Review";
+  }
+
   document.getElementById("btn-prev").disabled = currentIndex === 0;
   renderFormattedQuestion(document.getElementById("q-text"), q.text);
 
@@ -2789,13 +2803,28 @@ function renderQuestion() {
 
   const optionsEl = document.getElementById("q-options");
   optionsEl.innerHTML = "";
+  const optionLetters = ["A", "B", "C", "D", "E", "F"];
   q.options.forEach((opt, i) => {
+    const isSelected = answers[q.id] === i;
+    const letter = optionLetters[i] || String.fromCharCode(65 + i);
     const row = document.createElement("div");
-    row.className = "option-row" + (answers[q.id] === i ? " selected" : "");
-    row.innerHTML = `<div class="option-marker"></div><div>${escapeHtml(opt)}</div>`;
-    row.addEventListener("click", () => {
+    row.className = "option-row" + (isSelected ? " selected" : "");
+    row.setAttribute("role", "radio");
+    row.setAttribute("aria-checked", isSelected ? "true" : "false");
+    row.setAttribute("tabindex", "0");
+    row.innerHTML = `<div class="option-marker">${letter}</div><div class="option-text">${escapeHtml(opt)}</div>`;
+
+    const chooseOption = () => {
       answers[q.id] = i;
       renderQuestion();
+    };
+
+    row.addEventListener("click", chooseOption);
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        chooseOption();
+      }
     });
     optionsEl.appendChild(row);
   });
@@ -2804,6 +2833,17 @@ function renderQuestion() {
 }
 
 function renderPalette() {
+  const answeredCount = currentQuestions.filter(q => answers[q.id] !== undefined).length;
+  const markedCount = marked.size;
+  const unattemptedCount = Math.max(0, currentQuestions.length - answeredCount);
+
+  const statAnswered = document.getElementById("palette-stat-answered");
+  if (statAnswered) statAnswered.innerHTML = `<strong>${answeredCount}</strong> Answered`;
+  const statUnattempted = document.getElementById("palette-stat-unattempted");
+  if (statUnattempted) statUnattempted.innerHTML = `<strong>${unattemptedCount}</strong> Unanswered`;
+  const statMarked = document.getElementById("palette-stat-marked");
+  if (statMarked) statMarked.innerHTML = `<strong>${markedCount}</strong> Flagged`;
+
   const grid = document.getElementById("palette-grid");
   grid.innerHTML = "";
   currentQuestions.forEach((q, i) => {
@@ -2819,6 +2859,7 @@ function renderPalette() {
     else if (isVisited) cls += " not-answered";
     btn.className = cls;
     btn.textContent = i + 1;
+    btn.setAttribute("aria-label", `Question ${i + 1}`);
     btn.addEventListener("click", () => { currentIndex = i; renderQuestion(); });
     grid.appendChild(btn);
   });
@@ -2839,6 +2880,21 @@ document.getElementById("btn-mark-review").addEventListener("click", () => {
   marked.add(currentQuestions[currentIndex].id);
   goNext();
 });
+
+const btnFlagToggle = document.getElementById("btn-flag-toggle");
+if (btnFlagToggle) {
+  btnFlagToggle.addEventListener("click", () => {
+    if (!currentQuestions[currentIndex]) return;
+    const qid = currentQuestions[currentIndex].id;
+    if (marked.has(qid)) {
+      marked.delete(qid);
+    } else {
+      marked.add(qid);
+    }
+    renderQuestion();
+  });
+}
+
 document.getElementById("btn-clear").addEventListener("click", () => {
   delete answers[currentQuestions[currentIndex].id];
   renderQuestion();
@@ -2992,42 +3048,80 @@ async function submitTest() {
 // Results
 // ============================================================
 function renderResults(r) {
-  document.getElementById("results-subject-name").textContent = currentSubject.testName || currentSubject.name;
+  document.getElementById("results-subject-name").textContent = currentSubject.testName || currentSubject.name || currentSubject.subject || "Results";
   const pct = r.total > 0 ? Math.round((r.correct / r.total) * 100) : 0;
-  document.getElementById("results-meta").textContent = `${r.correct} of ${r.total} correct`;
+  document.getElementById("results-meta").textContent = `${r.correct} of ${r.total} correct • Completed in ${currentSubject.subject || "General"}`;
 
   document.getElementById("results-summary").innerHTML = `
     <div class="result-stat"><div class="num">${pct}%</div><div class="label">Score</div></div>
     <div class="result-stat"><div class="num" style="color:var(--success)">${r.correct}</div><div class="label">Correct</div></div>
-    <div class="result-stat"><div class="num" style="color:var(--danger)">${r.wrong}</div><div class="label">Wrong</div></div>
-    <div class="result-stat"><div class="num" style="color:var(--text-muted)">${r.unattempted}</div><div class="label">Unattempted</div></div>
+    <div class="result-stat"><div class="num" style="color:var(--danger)">${r.wrong}</div><div class="label">Incorrect</div></div>
+    <div class="result-stat"><div class="num" style="color:var(--text-muted)">${r.unattempted}</div><div class="label">Unanswered</div></div>
   `;
+
+  // Update review filter tab counts
+  const countAll = document.getElementById("count-all");
+  if (countAll) countAll.textContent = r.reviewData.length;
+  const countIncorrect = document.getElementById("count-incorrect");
+  if (countIncorrect) countIncorrect.textContent = r.wrong;
+  const countCorrect = document.getElementById("count-correct");
+  if (countCorrect) countCorrect.textContent = r.correct;
+  const countUnattempted = document.getElementById("count-unattempted");
+  if (countUnattempted) countUnattempted.textContent = r.unattempted;
 
   const topicKeys = Object.keys(r.topicStats);
   const topicBarsEl = document.getElementById("topic-bars");
   if (topicKeys.length === 0) {
     topicBarsEl.innerHTML = "";
   } else {
-    topicBarsEl.innerHTML = `<h3 style="margin-bottom:14px;">By topic</h3>` + topicKeys.map(topic => {
+    topicBarsEl.innerHTML = `<h3 style="margin-bottom:14px; font-size: 16px;">Performance by Topic</h3>` + topicKeys.map(topic => {
       const t = r.topicStats[topic];
       const w = t.total > 0 ? Math.round((t.correct / t.total) * 100) : 0;
       return `
         <div class="topic-row">
-          <div>${escapeHtml(topic)}</div>
+          <div style="font-weight: 500;">${escapeHtml(topic)}</div>
           <div class="topic-track"><div class="topic-fill" style="width:${w}%"></div></div>
-          <div style="text-align:right;color:var(--text-muted);">${t.correct}/${t.total}</div>
+          <div style="text-align:right;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">${t.correct}/${t.total}</div>
         </div>`;
     }).join("");
   }
 
   const reviewEl = document.getElementById("review-list");
   reviewEl.innerHTML = "";
-  r.reviewData.forEach(q => {
-    const cls = !q.isAnswered ? "skipped" : (q.isCorrect ? "right" : "wrong");
+  r.reviewData.forEach((q, idx) => {
+    let status = "unattempted";
+    let cls = "skipped";
+    if (q.isAnswered) {
+      if (q.isCorrect) {
+        status = "correct";
+        cls = "right";
+      } else {
+        status = "incorrect";
+        cls = "wrong";
+      }
+    }
+
     const yourAnswer = q.isAnswered ? q.options[q.selected] : "Not attempted";
 
     const itemEl = document.createElement("div");
     itemEl.className = `review-item ${cls}`;
+    itemEl.setAttribute("data-status", status);
+
+    const itemHeader = document.createElement("div");
+    itemHeader.style.cssText = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;";
+
+    const badge = document.createElement("span");
+    badge.className = "q-badge";
+    badge.textContent = `Question ${idx + 1}`;
+    itemHeader.appendChild(badge);
+
+    if (q.topic) {
+      const topicTag = document.createElement("span");
+      topicTag.className = "q-topic";
+      topicTag.textContent = q.topic;
+      itemHeader.appendChild(topicTag);
+    }
+    itemEl.appendChild(itemHeader);
 
     const qTextDiv = document.createElement("div");
     renderFormattedQuestion(qTextDiv, q.text);
@@ -3047,14 +3141,36 @@ function renderResults(r) {
 
     if (q.explanation) {
       const expDiv = document.createElement("div");
-      expDiv.className = "review-answer";
-      expDiv.style.color = "var(--text-muted)";
-      expDiv.textContent = q.explanation;
+      expDiv.className = "review-explanation";
+      expDiv.innerHTML = `<strong>💡 Explanation:</strong> ${escapeHtml(q.explanation)}`;
       itemEl.appendChild(expDiv);
     }
 
     reviewEl.appendChild(itemEl);
   });
+
+  // Filter tab switching
+  const filterBtns = document.querySelectorAll(".review-filter-btn");
+  function applyReviewFilter(filter) {
+    filterBtns.forEach(btn => btn.classList.toggle("active", btn.getAttribute("data-filter") === filter));
+    const items = reviewEl.querySelectorAll(".review-item");
+    items.forEach(item => {
+      const status = item.getAttribute("data-status");
+      if (filter === "all" || status === filter) {
+        item.classList.remove("hidden");
+      } else {
+        item.classList.add("hidden");
+      }
+    });
+  }
+
+  filterBtns.forEach(btn => {
+    btn.onclick = () => {
+      applyReviewFilter(btn.getAttribute("data-filter"));
+    };
+  });
+  applyReviewFilter("all");
+
   showView("view-results");
 }
 

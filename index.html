@@ -12,12 +12,12 @@
 <script>
   (function() {
     try {
-      var t = localStorage.getItem('ts_theme') || localStorage.getItem('ts-theme') || 'dark';
-      var a = localStorage.getItem('ts_accent') || 'blue';
+      var t = localStorage.getItem('ts_theme') || localStorage.getItem('ts-theme') || 'light';
+      var a = localStorage.getItem('ts_accent') || 'purple';
       var c = localStorage.getItem('ts_contrast') || 'standard';
       var f = localStorage.getItem('ts_ui_font') || 'system';
       var s = localStorage.getItem('ts_ui_size') || 'medium';
-      var tf = localStorage.getItem('ts_test_font') || 'times';
+      var tf = localStorage.getItem('ts_test_font') || 'oxygen';
       var rawTs = localStorage.getItem('ts_test_size') || '100';
       var numTs = parseInt(rawTs, 10);
       var pxTs = 16;
@@ -571,11 +571,11 @@
             <div class="test-title" id="test-subject-name">Subject</div>
             <div class="test-typo-bar" id="test-typo-bar" title="Adjust test typography">
               <select id="test-font-family-select" class="test-typo-select" title="Test font family" aria-label="Test font family">
-                <option value="times">Times New Roman</option>
-                <option value="oxygen">Oxygen</option>
+                <option value="oxygen" selected>Oxygen</option>
                 <option value="inter">Inter</option>
                 <option value="system">System Default</option>
                 <option value="arial">Arial</option>
+                <option value="times">Times New Roman</option>
               </select>
               <div class="test-size-btn-group">
                 <button type="button" class="btn btn-quiet btn-xs" id="btn-test-font-decrease" title="Decrease font size (A−)" aria-label="Decrease font size">A−</button>
@@ -601,15 +601,24 @@
           </div>
         </div>
 
-        <div id="q-topic" class="q-topic hidden"></div>
+        <div class="q-meta-bar" id="q-meta-bar">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="q-badge" id="q-number-badge">Question 1</span>
+            <span id="q-topic" class="q-topic hidden"></span>
+          </div>
+          <button type="button" class="flag-toggle-btn" id="btn-flag-toggle" title="Flag question to review later">
+            <span id="flag-icon">⚐</span> <span id="flag-text">Flag for Review</span>
+          </button>
+        </div>
+
         <div class="q-text" id="q-text"></div>
-        <div id="q-options"></div>
+        <div id="q-options" role="radiogroup" aria-label="Answer choices"></div>
 
         <div class="test-actions">
           <button class="btn" id="btn-prev">← Previous</button>
+          <button class="btn btn-quiet" id="btn-clear">Clear response</button>
           <button class="btn" id="btn-mark-review">Mark for review &amp; next</button>
-          <button class="btn" id="btn-clear">Clear response</button>
-          <button class="btn btn-primary" id="btn-save-next">Save &amp; next</button>
+          <button class="btn btn-primary" id="btn-save-next">Save &amp; next →</button>
           <button class="btn btn-danger btn-submit-inline hidden" id="btn-submit-inline" title="Submit test">
             Submit test
           </button>
@@ -629,11 +638,16 @@
             ⏸️ Pause
           </button>
         </div>
+        <div class="palette-summary-strip" id="palette-summary-strip">
+          <span class="palette-stat answered" id="palette-stat-answered"><strong>0</strong> Answered</span>
+          <span class="palette-stat unattempted" id="palette-stat-unattempted"><strong>0</strong> Unanswered</span>
+          <span class="palette-stat marked" id="palette-stat-marked"><strong>0</strong> Flagged</span>
+        </div>
         <div class="legend">
-          <div class="legend-item"><span class="legend-dot" style="background:var(--status-not-visited)"></span>Not visited</div>
-          <div class="legend-item"><span class="legend-dot" style="background:var(--status-not-answered)"></span>Not answered</div>
-          <div class="legend-item"><span class="legend-dot" style="background:var(--status-answered)"></span>Answered</div>
-          <div class="legend-item"><span class="legend-dot" style="background:var(--status-marked)"></span>Marked</div>
+          <div class="legend-item"><span class="legend-dot answered"></span>Answered</div>
+          <div class="legend-item"><span class="legend-dot not-answered"></span>Not answered</div>
+          <div class="legend-item"><span class="legend-dot marked"></span>Flagged</div>
+          <div class="legend-item"><span class="legend-dot not-visited"></span>Not visited</div>
         </div>
         <div class="palette-grid" id="palette-grid"></div>
         <div class="submit-block" style="display: flex; flex-direction: column; gap: 8px;">
@@ -659,14 +673,29 @@
         <button class="btn btn-sm" id="back-to-dashboard">Back to tests</button>
       </div>
     </div>
-    <div class="main">
-      <div class="section-head"><h2 id="results-subject-name">Results</h2></div>
-      <p class="section-sub" id="results-meta"></p>
+    <div class="main results-main">
+      <div class="results-hero">
+        <div class="results-hero-content">
+          <div class="results-badge" id="results-badge">Performance Summary</div>
+          <h2 id="results-subject-name" class="results-subject-title">Results</h2>
+          <p class="results-meta-text" id="results-meta"></p>
+        </div>
+      </div>
 
       <div class="results-summary" id="results-summary"></div>
       <div class="topic-bars" id="topic-bars"></div>
 
-      <h3 style="margin-bottom:16px;">Question review</h3>
+      <div class="review-section-header">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
+          <h3 style="margin: 0; font-size: 18px;">Question Review</h3>
+          <div class="review-filters" id="review-filters">
+            <button type="button" class="btn btn-sm review-filter-btn active" data-filter="all">All (<span id="count-all">0</span>)</button>
+            <button type="button" class="btn btn-sm review-filter-btn" data-filter="incorrect">Incorrect (<span id="count-incorrect">0</span>)</button>
+            <button type="button" class="btn btn-sm review-filter-btn" data-filter="correct">Correct (<span id="count-correct">0</span>)</button>
+            <button type="button" class="btn btn-sm review-filter-btn" data-filter="unattempted">Unanswered (<span id="count-unattempted">0</span>)</button>
+          </div>
+        </div>
+      </div>
       <div id="review-list"></div>
     </div>
   </section>
@@ -690,7 +719,7 @@
             <div class="settings-group-desc">Choose how the interface appears on your device.</div>
           </div>
           <div class="theme-tiles-grid" id="theme-tiles-grid">
-            <div class="theme-tile" data-theme-val="light" tabindex="0" role="button" aria-label="Select Light theme">
+            <div class="theme-tile active" data-theme-val="light" tabindex="0" role="button" aria-label="Select Light theme">
               <div class="theme-tile-preview preview-light">
                 <div class="preview-bar"></div>
                 <div class="preview-body">
@@ -707,7 +736,7 @@
               </div>
             </div>
 
-            <div class="theme-tile active" data-theme-val="dark" tabindex="0" role="button" aria-label="Select Dark theme">
+            <div class="theme-tile" data-theme-val="dark" tabindex="0" role="button" aria-label="Select Dark theme">
               <div class="theme-tile-preview preview-dark">
                 <div class="preview-bar"></div>
                 <div class="preview-body">
@@ -750,13 +779,13 @@
             <div class="settings-group-desc">Select an accent color for active buttons, tabs, and highlights.</div>
           </div>
           <div class="accent-swatches" id="accent-swatches">
-            <button type="button" class="accent-swatch swatch-blue active" data-accent-val="blue" title="Default Blue" aria-label="Default Blue"></button>
-            <button type="button" class="accent-swatch swatch-green" data-accent-val="green" title="Green" aria-label="Green"></button>
-            <button type="button" class="accent-swatch swatch-yellow" data-accent-val="yellow" title="Yellow" aria-label="Yellow"></button>
-            <button type="button" class="accent-swatch swatch-pink" data-accent-val="pink" title="Pink" aria-label="Pink"></button>
-            <button type="button" class="accent-swatch swatch-orange" data-accent-val="orange" title="Orange" aria-label="Orange"></button>
-            <button type="button" class="accent-swatch swatch-purple" data-accent-val="purple" title="Purple" aria-label="Purple"></button>
-            <button type="button" class="accent-swatch swatch-black" data-accent-val="black" title="Black" aria-label="Black"></button>
+            <button type="button" class="accent-swatch swatch-purple active" data-accent-val="purple" title="Royal Purple (Magoosh Inspired)" aria-label="Purple"></button>
+            <button type="button" class="accent-swatch swatch-blue" data-accent-val="blue" title="Classic Blue" aria-label="Default Blue"></button>
+            <button type="button" class="accent-swatch swatch-green" data-accent-val="green" title="Emerald Green" aria-label="Green"></button>
+            <button type="button" class="accent-swatch swatch-yellow" data-accent-val="yellow" title="Warm Amber" aria-label="Yellow"></button>
+            <button type="button" class="accent-swatch swatch-pink" data-accent-val="pink" title="Rose Pink" aria-label="Pink"></button>
+            <button type="button" class="accent-swatch swatch-orange" data-accent-val="orange" title="Deep Orange" aria-label="Orange"></button>
+            <button type="button" class="accent-swatch swatch-black" data-accent-val="black" title="Neutral Monochrome" aria-label="Black"></button>
           </div>
         </div>
 
@@ -810,11 +839,11 @@
             <div>
               <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">Test Font</label>
               <select id="settings-test-font-select" class="settings-select" aria-label="Test Font Family">
-                <option value="times">Times New Roman</option>
-                <option value="oxygen">Oxygen</option>
-                <option value="inter">Inter</option>
+                <option value="oxygen" selected>Oxygen (Readable Sans)</option>
+                <option value="inter">Inter (Modern Sans)</option>
                 <option value="system">System Default</option>
                 <option value="arial">Arial</option>
+                <option value="times">Times New Roman</option>
               </select>
             </div>
             <div>
