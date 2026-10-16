@@ -680,6 +680,11 @@
           <h2 id="results-subject-name" class="results-subject-title">Results</h2>
           <p class="results-meta-text" id="results-meta"></p>
         </div>
+        <div class="results-hero-ai-action" style="margin-top: 14px;">
+          <button type="button" class="btn btn-primary" id="btn-analyze-test-ai" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
+            <span>✨</span> <span>Analyze My Test with AI</span>
+          </button>
+        </div>
       </div>
 
       <div class="results-summary" id="results-summary"></div>
@@ -860,6 +865,48 @@
       </div>
     </div>
   </div>
+
+  <!-- ============ TESTWISE AI DRAWER (Question Tutor & Master Test Analyzer) ============ -->
+  <div id="ai-drawer-backdrop" class="ai-drawer-backdrop hidden"></div>
+  <aside id="ai-drawer" class="ai-drawer hidden" aria-label="TestWise AI Study Assistant">
+    <div class="ai-drawer-header">
+      <div class="ai-drawer-title-group">
+        <div class="ai-drawer-badge" id="ai-drawer-mode-badge">✨ Question Tutor</div>
+        <h3 id="ai-drawer-title" class="ai-drawer-title">Question Study</h3>
+        <p id="ai-drawer-sub" class="ai-drawer-sub">Interactive study assistant powered by Google Gemini</p>
+      </div>
+      <button type="button" class="icon-btn ai-drawer-close" id="ai-drawer-close" title="Close AI Assistant" aria-label="Close AI Assistant">✕</button>
+    </div>
+
+    <div class="ai-drawer-notice">
+      <span class="ai-notice-icon">ℹ️</span>
+      <span id="ai-notice-text">TestWise AI analyzes your test responses. Explanations are generated using your test data.</span>
+    </div>
+
+    <div class="ai-drawer-body" id="ai-chat-body">
+      <!-- Dynamic messages rendered here -->
+    </div>
+
+    <!-- Quick Prompt Chips -->
+    <div class="ai-quick-chips" id="ai-quick-chips">
+      <!-- Dynamic chips based on mode -->
+    </div>
+
+    <!-- Chat input -->
+    <div class="ai-drawer-input-row">
+      <textarea id="ai-drawer-input" class="ai-drawer-input" rows="1" placeholder="Ask a follow-up question... (Enter to send, Shift+Enter for new line)"></textarea>
+      <button type="button" id="ai-drawer-send" class="btn btn-primary ai-drawer-send-btn" title="Send message" aria-label="Send message">
+        <span>➤</span>
+      </button>
+    </div>
+
+    <!-- Drawer Footer Actions -->
+    <div class="ai-drawer-footer">
+      <button type="button" class="btn btn-quiet btn-xs" id="btn-ai-export-notes" title="Export study notes as Markdown (.md)">📥 Export Notes (.md)</button>
+      <button type="button" class="btn btn-quiet btn-xs" id="btn-ai-copy-response" title="Copy last AI response to clipboard">📋 Copy Response</button>
+      <button type="button" class="btn btn-quiet btn-xs" id="btn-ai-new-chat" title="Start a fresh conversation">🔄 New Chat</button>
+    </div>
+  </aside>
 
 </div>
 

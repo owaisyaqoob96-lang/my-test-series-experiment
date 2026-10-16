@@ -3028,6 +3028,13 @@ async function submitTest() {
       subjectName: currentSubject.testName || currentSubject.name,
       correct, wrong, unattempted, total,
       topicStats,
+      answersSnapshot: reviewData.map(q => ({
+        id: q.id,
+        topic: q.topic || "",
+        isAnswered: q.isAnswered,
+        isCorrect: q.isCorrect,
+        selected: q.selected ?? null
+      })),
       submittedAt: serverTimestamp()
     });
 
@@ -3041,7 +3048,24 @@ async function submitTest() {
     console.error("Could not save attempt:", e);
   }
 
-  renderResults({ correct, wrong, unattempted, total, topicStats, reviewData });
+  const resultsPayload = {
+    subjectId: currentSubject.id,
+    subjectName: currentSubject.testName || currentSubject.name,
+    subjectCategory: currentSubject.subject || "General",
+    correct,
+    wrong,
+    unattempted,
+    total,
+    topicStats,
+    reviewData
+  };
+  try {
+    sessionStorage.setItem("testwise_last_results", JSON.stringify(resultsPayload));
+  } catch (e) {
+    console.warn("Could not cache results in sessionStorage:", e);
+  }
+
+  renderResults(resultsPayload);
 }
 
 // ============================================================
@@ -3146,6 +3170,18 @@ function renderResults(r) {
       itemEl.appendChild(expDiv);
     }
 
+    // AI Question Tutor Action Button
+    const actionsBar = document.createElement("div");
+    actionsBar.className = "review-actions-bar";
+    const aiBtn = document.createElement("button");
+    aiBtn.type = "button";
+    aiBtn.className = "btn-question-ai-analyze";
+    aiBtn.innerHTML = "<span>✨</span> <span>Analyze with AI</span>";
+    aiBtn.title = "Study and discuss this question with TestWise AI Tutor";
+    aiBtn.onclick = () => openAiQuestionTutor(q, idx + 1, r);
+    actionsBar.appendChild(aiBtn);
+    itemEl.appendChild(actionsBar);
+
     reviewEl.appendChild(itemEl);
   });
 
@@ -3170,6 +3206,12 @@ function renderResults(r) {
     };
   });
   applyReviewFilter("all");
+
+  // Wire up Master Test Analyzer button
+  const btnAnalyzeTest = document.getElementById("btn-analyze-test-ai");
+  if (btnAnalyzeTest) {
+    btnAnalyzeTest.onclick = () => openAiMasterTestAnalyzer(r);
+  }
 
   showView("view-results");
 }
@@ -3211,4 +3253,574 @@ if (homeLink) {
     }
   });
 }
+
+// ============================================================
+// TestWise AI: Question Tutor & Master Test Analyzer
+// ============================================================
+let currentAiMode = "question_tutor"; // "question_tutor" | "test_analyzer"
+let currentAiContext = null;
+let currentAiSessionKey = null;
+let currentAiResults = null;
+let isAiGenerating = false;
+const aiConversationsCache = {};
+
+function getCachedConversation(key) {
+  if (aiConversationsCache[key]) return aiConversationsCache[key];
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        aiConversationsCache[key] = parsed;
+        return parsed;
+      }
+    }
+  } catch (e) {}
+  return [];
+}
+
+function saveCachedConversation(key, messages) {
+  aiConversationsCache[key] = messages;
+  try {
+    sessionStorage.setItem(key, JSON.stringify(messages));
+  } catch (e) {}
+}
+
+async function callAiTutorApi(payload) {
+  if (!auth.currentUser) {
+    throw new Error("You must be logged in to use TestWise AI.");
+  }
+  const token = await auth.currentUser.getIdToken(true);
+  const resp = await fetch("/api/ai-tutor", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    const err = new Error(data.error || `Server responded with status ${resp.status}`);
+    err.status = resp.status;
+    err.needsKey = data.needsKey;
+    err.help = data.help;
+    err.rateLimited = data.rateLimited;
+    throw err;
+  }
+  return data;
+}
+
+function renderSafeMarkdown(md) {
+  if (!md) return "";
+  let html = escapeHtml(md);
+
+  // Code blocks
+  html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
+    return `<pre><code>${code.trim()}</code></pre>`;
+  });
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+
+  // Italic
+  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+
+  // Headers (h3, h4)
+  html = html.replace(/^### (.*$)/gim, "<h4>$1</h4>");
+  html = html.replace(/^## (.*$)/gim, "<h3>$1</h3>");
+  html = html.replace(/^# (.*$)/gim, "<h3>$1</h3>");
+
+  // Markdown Tables
+  const lines = html.split("\n");
+  const processedLines = [];
+  let inTable = false;
+  let tableRows = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith("|") && line.endsWith("|")) {
+      if (/^\|[-:\s|]+\|$/.test(line)) {
+        continue;
+      }
+      inTable = true;
+      const cells = line.slice(1, -1).split("|").map(c => c.trim());
+      tableRows.push(cells);
+    } else {
+      if (inTable) {
+        if (tableRows.length > 0) {
+          let tableHtml = "<table><thead><tr>";
+          tableRows[0].forEach(cell => { tableHtml += `<th>${cell}</th>`; });
+          tableHtml += "</tr></thead><tbody>";
+          for (let r = 1; r < tableRows.length; r++) {
+            tableHtml += "<tr>";
+            tableRows[r].forEach(cell => { tableHtml += `<td>${cell}</td>`; });
+            tableHtml += "</tr>";
+          }
+          tableHtml += "</tbody></table>";
+          processedLines.push(tableHtml);
+        }
+        inTable = false;
+        tableRows = [];
+      }
+      processedLines.push(lines[i]);
+    }
+  }
+
+  if (inTable && tableRows.length > 0) {
+    let tableHtml = "<table><thead><tr>";
+    tableRows[0].forEach(cell => { tableHtml += `<th>${cell}</th>`; });
+    tableHtml += "</tr></thead><tbody>";
+    for (let r = 1; r < tableRows.length; r++) {
+      tableHtml += "<tr>";
+      tableRows[r].forEach(cell => { tableHtml += `<td>${cell}</td>`; });
+      tableHtml += "</tr>";
+    }
+    tableHtml += "</tbody></table>";
+    processedLines.push(tableHtml);
+  }
+
+  html = processedLines.join("\n");
+
+  // Lists (- or *)
+  html = html.replace(/(?:^|\n)[-*] (.*)/g, "<li>$1</li>");
+  html = html.replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>");
+
+  // Numbered lists (1. )
+  html = html.replace(/(?:^|\n)\d+\. (.*)/g, "<li>$1</li>");
+
+  // Paragraphs
+  html = html.split(/\n\s*\n/).map(p => {
+    p = p.trim();
+    if (!p) return "";
+    if (p.startsWith("<h") || p.startsWith("<ul") || p.startsWith("<ol") || p.startsWith("<table") || p.startsWith("<pre")) {
+      return p;
+    }
+    return `<p>${p.replace(/\n/g, "<br/>")}</p>`;
+  }).join("");
+
+  return html;
+}
+
+function openAiDrawer() {
+  const drawer = document.getElementById("ai-drawer");
+  const backdrop = document.getElementById("ai-drawer-backdrop");
+  if (drawer) drawer.classList.remove("hidden");
+  if (backdrop) backdrop.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeAiDrawer() {
+  const drawer = document.getElementById("ai-drawer");
+  const backdrop = document.getElementById("ai-drawer-backdrop");
+  if (drawer) drawer.classList.add("hidden");
+  if (backdrop) backdrop.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+function renderAiMessages(messages) {
+  const body = document.getElementById("ai-chat-body");
+  if (!body) return;
+  body.innerHTML = "";
+
+  messages.forEach((msg) => {
+    const wrap = document.createElement("div");
+    wrap.className = `ai-message ${msg.role === "assistant" ? "assistant" : "user"}`;
+    if (msg.role === "assistant") {
+      wrap.innerHTML = renderSafeMarkdown(msg.content);
+    } else {
+      wrap.textContent = msg.content;
+    }
+    body.appendChild(wrap);
+  });
+
+  body.scrollTop = body.scrollHeight;
+}
+
+function renderAiLoader() {
+  const body = document.getElementById("ai-chat-body");
+  if (!body) return;
+  const loader = document.createElement("div");
+  loader.id = "ai-active-loader";
+  loader.className = "ai-message assistant";
+  loader.innerHTML = `
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;font-weight:600;">TestWise AI is analyzing...</div>
+    <div class="ai-pulse-loader">
+      <div class="ai-pulse-dot"></div>
+      <div class="ai-pulse-dot"></div>
+      <div class="ai-pulse-dot"></div>
+    </div>
+  `;
+  body.appendChild(loader);
+  body.scrollTop = body.scrollHeight;
+}
+
+function removeAiLoader() {
+  const loader = document.getElementById("ai-active-loader");
+  if (loader) loader.remove();
+}
+
+function renderAiError(err, onRetry) {
+  removeAiLoader();
+  const body = document.getElementById("ai-chat-body");
+  if (!body) return;
+
+  const errBox = document.createElement("div");
+  errBox.className = "ai-message assistant";
+  errBox.style.borderColor = "var(--danger)";
+  errBox.style.background = "color-mix(in srgb, var(--danger) 8%, var(--surface))";
+
+  if (err.needsKey) {
+    errBox.innerHTML = `
+      <h4 style="color:var(--danger);margin-top:0;">⚠️ Google Gemini API Key Required</h4>
+      <p style="font-size:13px;line-height:1.5;">${escapeHtml(err.error)}</p>
+      <div style="background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px;margin:10px 0;font-size:12px;font-family:var(--font-mono, monospace);">
+        <strong>To enable AI responses locally:</strong><br/>
+        Create a <code>.env.local</code> file in your project folder with:<br/>
+        <code style="color:var(--primary);font-weight:bold;">GEMINI_API_KEY=your_gemini_api_key_here</code>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);">Get a free API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:underline;">Google AI Studio</a> (Free of charge, no billing required).</p>
+    `;
+  } else {
+    errBox.innerHTML = `
+      <h4 style="color:var(--danger);margin-top:0;">⚠️ Unable to Complete Request</h4>
+      <p style="font-size:13px;line-height:1.5;">${escapeHtml(err.message || "An unexpected error occurred while communicating with the AI service.")}</p>
+    `;
+    if (onRetry) {
+      const retryBtn = document.createElement("button");
+      retryBtn.type = "button";
+      retryBtn.className = "btn btn-sm btn-quiet";
+      retryBtn.style.marginTop = "8px";
+      retryBtn.textContent = "🔄 Retry Request";
+      retryBtn.onclick = () => {
+        errBox.remove();
+        onRetry();
+      };
+      errBox.appendChild(retryBtn);
+    }
+  }
+
+  body.appendChild(errBox);
+  body.scrollTop = body.scrollHeight;
+}
+
+async function sendAiMessage(promptText) {
+  if (isAiGenerating) return;
+  const inputEl = document.getElementById("ai-drawer-input");
+  const text = (promptText || (inputEl ? inputEl.value : "")).trim();
+  if (!text) return;
+
+  if (inputEl && !promptText) {
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+  }
+
+  const messages = getCachedConversation(currentAiSessionKey);
+  const newMessages = [...messages, { role: "user", content: text }];
+  renderAiMessages(newMessages);
+
+  isAiGenerating = true;
+  renderAiLoader();
+
+  try {
+    const res = await callAiTutorApi({
+      mode: currentAiMode,
+      context: currentAiContext,
+      messages: newMessages
+    });
+
+    removeAiLoader();
+    const finalMessages = [...newMessages, { role: "assistant", content: res.text || "No response received." }];
+    saveCachedConversation(currentAiSessionKey, finalMessages);
+    renderAiMessages(finalMessages);
+  } catch (err) {
+    renderAiError(err, () => sendAiMessage(text));
+  } finally {
+    isAiGenerating = false;
+  }
+}
+
+function openAiQuestionTutor(q, questionNumber, results) {
+  currentAiMode = "question_tutor";
+  currentAiResults = results;
+  const subjectId = results?.subjectId || currentSubject?.id || "test";
+  currentAiSessionKey = `testwise_q_${subjectId}_${q.id}`;
+
+  const opts = q.options || [];
+
+  currentAiContext = {
+    subject: results?.subjectCategory || currentSubject?.subject || "General",
+    subjectName: results?.subjectName || currentSubject?.testName || currentSubject?.name || "Practice Test",
+    topic: q.topic || "General",
+    questionNumber,
+    text: q.text || "",
+    options: opts,
+    correctIndex: q.correctIndex,
+    selected: q.selected,
+    isAnswered: q.isAnswered,
+    isCorrect: q.isCorrect,
+    explanation: q.explanation || ""
+  };
+
+  // Header UI
+  const badgeEl = document.getElementById("ai-drawer-mode-badge");
+  const titleEl = document.getElementById("ai-drawer-title");
+  const subEl = document.getElementById("ai-drawer-sub");
+  const noticeEl = document.getElementById("ai-notice-text");
+
+  if (badgeEl) badgeEl.textContent = "✨ Question Tutor";
+  if (titleEl) titleEl.textContent = `Question ${questionNumber}: ${q.topic || "Question Study"}`;
+  if (subEl) subEl.textContent = `${currentSubject?.testName || "Practice Test"} • ${q.isAnswered ? (q.isCorrect ? "Correct" : "Incorrect") : "Unanswered"}`;
+  if (noticeEl) noticeEl.textContent = `TestWise AI evaluates Question ${questionNumber} and explains the underlying concept.`;
+
+  // Quick Chips
+  const chipsContainer = document.getElementById("ai-quick-chips");
+  if (chipsContainer) {
+    const chips = [
+      "Why are other options wrong?",
+      "Explain in simpler language",
+      "Give me a memory aid / mnemonic",
+      "What is the common exam trap here?",
+      "Give me a similar practice question"
+    ];
+    chipsContainer.innerHTML = chips.map(c => `<button type="button" class="ai-chip">${escapeHtml(c)}</button>`).join("");
+    chipsContainer.querySelectorAll(".ai-chip").forEach(btn => {
+      btn.onclick = () => sendAiMessage(btn.textContent.trim());
+    });
+  }
+
+  openAiDrawer();
+
+  const existing = getCachedConversation(currentAiSessionKey);
+  if (existing.length > 0) {
+    renderAiMessages(existing);
+  } else {
+    // Initial automated breakdown
+    const initialPrompt = "Please analyze this question in detail: teach the concept being tested from the basics, explain what the question is asking, give the step-by-step reasoning, evaluate every option individually, explain common exam traps, and provide a memorable takeaway.";
+    sendAiMessage(initialPrompt);
+  }
+}
+
+function openAiMasterTestAnalyzer(results) {
+  currentAiMode = "test_analyzer";
+  currentAiResults = results;
+  const subjectId = results?.subjectId || currentSubject?.id || "test";
+  currentAiSessionKey = `testwise_master_${subjectId}`;
+
+  const qs = (results.reviewData || []).map((q, idx) => ({
+    number: idx + 1,
+    topic: q.topic || "General",
+    status: q.isAnswered ? (q.isCorrect ? "Correct" : "Incorrect") : "Unanswered",
+    userAnswer: q.isAnswered ? (q.options[q.selected] || "Selected") : "Unanswered",
+    correctAnswer: q.options[q.correctIndex] || ""
+  }));
+
+  currentAiContext = {
+    subject: results.subjectCategory || currentSubject?.subject || "General",
+    subjectName: results.subjectName || currentSubject?.testName || currentSubject?.name || "Practice Test",
+    total: results.total,
+    correct: results.correct,
+    wrong: results.wrong,
+    unattempted: results.unattempted,
+    topicStats: results.topicStats || {},
+    questionsSummary: qs
+  };
+
+  // Header UI
+  const badgeEl = document.getElementById("ai-drawer-mode-badge");
+  const titleEl = document.getElementById("ai-drawer-title");
+  const subEl = document.getElementById("ai-drawer-sub");
+  const noticeEl = document.getElementById("ai-notice-text");
+
+  if (badgeEl) badgeEl.textContent = "✨ Master Test Analyzer";
+  if (titleEl) titleEl.textContent = "Complete Test Diagnostic";
+  if (subEl) subEl.textContent = `${currentSubject?.testName || "Practice Test"} (${results.correct}/${results.total} Score)`;
+  if (noticeEl) noticeEl.textContent = "TestWise AI evaluates your complete test attempt across all topics and generates an actionable revision plan.";
+
+  // Quick Chips
+  const chipsContainer = document.getElementById("ai-quick-chips");
+  if (chipsContainer) {
+    const chips = [
+      "Explain my weakest topic in detail",
+      "Give me a 3-day revision plan",
+      "Which concepts should I revise first?",
+      "Create practice questions targeting my mistakes"
+    ];
+    chipsContainer.innerHTML = chips.map(c => `<button type="button" class="ai-chip">${escapeHtml(c)}</button>`).join("");
+    chipsContainer.querySelectorAll(".ai-chip").forEach(btn => {
+      btn.onclick = () => sendAiMessage(btn.textContent.trim());
+    });
+  }
+
+  openAiDrawer();
+
+  const existing = getCachedConversation(currentAiSessionKey);
+  if (existing.length > 0) {
+    renderAiMessages(existing);
+  } else {
+    // Initial automated master analysis
+    const initialPrompt = "Please evaluate my overall test performance: provide a diagnostic breakdown of my strengths, high-priority improvement areas, cognitive error patterns, a topic-wise review table, and a prioritized study plan.";
+    sendAiMessage(initialPrompt);
+  }
+}
+
+function exportStudyNotes() {
+  const messages = getCachedConversation(currentAiSessionKey);
+  if (!messages || messages.length === 0) {
+    alert("No conversation or notes available to export yet.");
+    return;
+  }
+
+  let mdContent = "";
+  let filename = "Study-Notes.md";
+
+  if (currentAiMode === "question_tutor" && currentAiContext) {
+    const ctx = currentAiContext;
+    const safeTopic = (ctx.topic || "General").replace(/[^a-zA-Z0-9_-]/g, "_");
+    filename = `Question-Tutor_${safeTopic}_Q${ctx.questionNumber || "1"}.md`;
+
+    mdContent = `# TestWise AI Question Tutor Notes
+**Test:** ${ctx.subjectName || "Practice Test"} (${ctx.subject || "General"})
+**Topic:** ${ctx.topic || "General"}
+**Question Number:** ${ctx.questionNumber || "N/A"}
+**Status:** ${ctx.isAnswered ? (ctx.isCorrect ? "Correct" : "Incorrect") : "Unanswered"}
+
+---
+
+### Question
+${ctx.text || ""}
+
+### Options
+${(ctx.options || []).map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join("\n")}
+
+**Correct Answer:** Option ${String.fromCharCode(65 + (ctx.correctIndex || 0))} - ${(ctx.options || [])[ctx.correctIndex || 0] || ""}
+**Student's Answer:** ${ctx.isAnswered ? `Option ${String.fromCharCode(65 + ctx.selected)} - ${(ctx.options || [])[ctx.selected] || ""}` : "Not attempted"}
+${ctx.explanation ? `\n**Provided Explanation:**\n${ctx.explanation}\n` : ""}
+
+---
+
+## AI Tutoring Conversation & Notes
+
+`;
+  } else if (currentAiContext) {
+    const ctx = currentAiContext;
+    const safeTitle = (ctx.subjectName || "Test").replace(/[^a-zA-Z0-9_-]/g, "_");
+    filename = `Test-Analysis_${safeTitle}.md`;
+
+    mdContent = `# TestWise AI Master Test Analysis Report
+**Test Title:** ${ctx.subjectName || "Practice Test"}
+**Subject Category:** ${ctx.subject || "General"}
+**Total Questions:** ${ctx.total}
+**Score:** ${ctx.correct} / ${ctx.total} (${ctx.total > 0 ? Math.round((ctx.correct / ctx.total) * 100) : 0}%)
+**Correct:** ${ctx.correct} | **Incorrect:** ${ctx.wrong} | **Unanswered:** ${ctx.unattempted}
+
+---
+
+## Topic Breakdown
+${Object.entries(ctx.topicStats || {}).map(([top, stat]) => `- **${top}:** ${stat.correct}/${stat.total} correct (${stat.total > 0 ? Math.round((stat.correct / stat.total) * 100) : 0}%)`).join("\n")}
+
+---
+
+## AI Diagnostic Analysis & Study Plan
+
+`;
+  }
+
+  // Append conversation messages
+  messages.forEach(msg => {
+    if (msg.role === "user") {
+      mdContent += `### 👤 Student Question:\n${msg.content}\n\n`;
+    } else {
+      mdContent += `### ✨ TestWise AI Response:\n${msg.content}\n\n`;
+    }
+  });
+
+  const blob = new Blob([mdContent], { type: "text/markdown;charset=utf-8" });
+  const downloadUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = downloadUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(downloadUrl);
+}
+
+function copyAiResponse() {
+  const messages = getCachedConversation(currentAiSessionKey);
+  const lastAssistant = [...messages].reverse().find(m => m.role === "assistant");
+  if (!lastAssistant) {
+    alert("No response available to copy.");
+    return;
+  }
+
+  navigator.clipboard.writeText(lastAssistant.content).then(() => {
+    const btn = document.getElementById("btn-ai-copy-response");
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = "✓ Copied!";
+      setTimeout(() => { btn.textContent = orig; }, 2000);
+    }
+  }).catch(err => {
+    alert("Failed to copy to clipboard: " + err.message);
+  });
+}
+
+function resetAiChat() {
+  if (confirm("Start a new chat session for this item? Your current chat will be refreshed.")) {
+    saveCachedConversation(currentAiSessionKey, []);
+    renderAiMessages([]);
+    if (currentAiMode === "question_tutor" && currentAiContext) {
+      const initialPrompt = "Please analyze this question in detail: teach the concept being tested from the basics, explain what the question is asking, give the step-by-step reasoning, evaluate every option individually, explain common exam traps, and provide a memorable takeaway.";
+      sendAiMessage(initialPrompt);
+    } else if (currentAiContext) {
+      const initialPrompt = "Please evaluate my overall test performance: provide a diagnostic breakdown of my strengths, high-priority improvement areas, cognitive error patterns, a topic-wise review table, and a prioritized study plan.";
+      sendAiMessage(initialPrompt);
+    }
+  }
+}
+
+// Wire up global TestWise AI drawer listeners
+function initTestWiseAiControls() {
+  const closeBtn = document.getElementById("ai-drawer-close");
+  const backdrop = document.getElementById("ai-drawer-backdrop");
+  if (closeBtn) closeBtn.onclick = closeAiDrawer;
+  if (backdrop) backdrop.onclick = closeAiDrawer;
+
+  const sendBtn = document.getElementById("ai-drawer-send");
+  const inputEl = document.getElementById("ai-drawer-input");
+
+  if (sendBtn) {
+    sendBtn.onclick = () => sendAiMessage();
+  }
+
+  if (inputEl) {
+    inputEl.onkeydown = (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendAiMessage();
+      }
+    };
+    inputEl.oninput = () => {
+      inputEl.style.height = "auto";
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
+    };
+  }
+
+  const exportBtn = document.getElementById("btn-ai-export-notes");
+  if (exportBtn) exportBtn.onclick = exportStudyNotes;
+
+  const copyBtn = document.getElementById("btn-ai-copy-response");
+  if (copyBtn) copyBtn.onclick = copyAiResponse;
+
+  const newChatBtn = document.getElementById("btn-ai-new-chat");
+  if (newChatBtn) newChatBtn.onclick = resetAiChat;
+}
+
+initTestWiseAiControls();
+
 
