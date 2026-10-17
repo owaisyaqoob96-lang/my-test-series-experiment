@@ -15,6 +15,18 @@ import {
   getDoc, runTransaction, setDoc, deleteField
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
+import {
+  MASHQ_PALETTES,
+  DEFAULT_PALETTE_ID,
+  getPaletteById,
+  getActivePalette,
+  applyBrandPalette,
+  renderAllBrandLogos,
+  updateBrandFavicon,
+  initSettingsPaletteGrid,
+  updateSettingsPaletteActiveState
+} from "./branding.js";
+
 let draggedTestId = null; // admin drag-and-drop reordering (slide-sorter style)
 
 const firebaseConfig = {
@@ -34,9 +46,60 @@ const db = getFirestore(fbApp);
 // ============================================================
 // View switching & Theme
 // ============================================================
-const views = ["view-auth", "view-verify", "view-app", "view-test", "view-results"];
-function showView(name) {
-  views.forEach(v => document.getElementById(v).classList.toggle("hidden", v !== name));
+const views = [
+  "view-public-home",
+  "view-exam-faa",
+  "view-auth",
+  "view-verify",
+  "view-app",
+  "view-test",
+  "view-results"
+];
+
+export function showView(name) {
+  views.forEach(v => {
+    const el = document.getElementById(v);
+    if (el) el.classList.toggle("hidden", v !== name);
+  });
+  renderAllBrandLogos();
+}
+
+export function updatePublicNavAuthState(user) {
+  const signinBtn = document.getElementById("public-nav-signin-btn");
+  const ctaBtn = document.getElementById("public-nav-cta-btn");
+  if (user && user.emailVerified) {
+    if (signinBtn) {
+      signinBtn.textContent = "My Dashboard";
+      signinBtn.setAttribute("href", "/dashboard");
+      signinBtn.setAttribute("data-route", "/dashboard");
+    }
+    if (ctaBtn) {
+      ctaBtn.textContent = "Open Dashboard";
+      ctaBtn.setAttribute("href", "/dashboard");
+      ctaBtn.setAttribute("data-route", "/dashboard");
+    }
+  } else {
+    if (signinBtn) {
+      signinBtn.textContent = "Sign In";
+      signinBtn.setAttribute("href", "/login");
+      signinBtn.setAttribute("data-route", "/login");
+    }
+    if (ctaBtn) {
+      ctaBtn.textContent = "Get Started";
+      ctaBtn.setAttribute("href", "/exams/finance-accounts-assistant");
+      ctaBtn.setAttribute("data-route", "/exams/finance-accounts-assistant");
+    }
+  }
+}
+
+export function navigateTo(path, replace = false) {
+  if (replace) {
+    window.history.replaceState({}, "", path);
+  } else {
+    window.history.pushState({}, "", path);
+  }
+  routeUser(auth.currentUser);
+  window.scrollTo(0, 0);
 }
 
 // ============================================================
@@ -44,7 +107,7 @@ function showView(name) {
 // ============================================================
 const APPEARANCE_DEFAULTS = {
   theme: "light",
-  accent: "purple",
+  paletteId: DEFAULT_PALETTE_ID,
   contrast: "standard",
   uiFont: "system",
   uiSize: "medium",
@@ -53,7 +116,6 @@ const APPEARANCE_DEFAULTS = {
 };
 
 const VALID_THEMES = ["light", "dark", "lights-out"];
-const VALID_ACCENTS = ["blue", "green", "yellow", "pink", "orange", "purple", "black"];
 const VALID_CONTRASTS = ["standard", "more"];
 const VALID_UI_FONTS = ["system", "inter", "oxygen", "arial", "times"];
 const VALID_UI_SIZES = ["small", "medium", "large"];
@@ -74,7 +136,7 @@ function parseStoredTestSize(val) {
 function loadAppearanceSettings() {
   try {
     const storedTheme = localStorage.getItem("ts_theme") || localStorage.getItem("ts-theme");
-    const storedAccent = localStorage.getItem("ts_accent");
+    const storedPalId = localStorage.getItem("ts_palette_id") || DEFAULT_PALETTE_ID;
     const storedContrast = localStorage.getItem("ts_contrast");
     const storedUiFont = localStorage.getItem("ts_ui_font");
     const storedUiSize = localStorage.getItem("ts_ui_size");
@@ -82,7 +144,7 @@ function loadAppearanceSettings() {
     const storedTestSize = localStorage.getItem("ts_test_size");
 
     appearanceState.theme = VALID_THEMES.includes(storedTheme) ? storedTheme : APPEARANCE_DEFAULTS.theme;
-    appearanceState.accent = VALID_ACCENTS.includes(storedAccent) ? storedAccent : APPEARANCE_DEFAULTS.accent;
+    appearanceState.paletteId = parseInt(storedPalId, 10) || DEFAULT_PALETTE_ID;
     appearanceState.contrast = VALID_CONTRASTS.includes(storedContrast) ? storedContrast : APPEARANCE_DEFAULTS.contrast;
     appearanceState.uiFont = VALID_UI_FONTS.includes(storedUiFont) ? storedUiFont : APPEARANCE_DEFAULTS.uiFont;
     appearanceState.uiSize = VALID_UI_SIZES.includes(storedUiSize) ? storedUiSize : APPEARANCE_DEFAULTS.uiSize;
@@ -91,14 +153,16 @@ function loadAppearanceSettings() {
   } catch (e) {
     console.warn("Could not read appearance settings from localStorage", e);
   }
+  applyBrandPalette(appearanceState.paletteId);
   applyAllAppearanceSettings();
   renderSettingsControls();
+  renderAllBrandLogos();
 }
 
 function applyAllAppearanceSettings() {
   const root = document.documentElement;
   root.setAttribute("data-theme", appearanceState.theme);
-  root.setAttribute("data-accent", appearanceState.accent);
+  root.setAttribute("data-palette-id", String(appearanceState.paletteId));
   root.setAttribute("data-contrast", appearanceState.contrast);
   root.setAttribute("data-ui-font", appearanceState.uiFont);
   root.setAttribute("data-ui-size", appearanceState.uiSize);
@@ -126,14 +190,8 @@ function setTheme(theme) {
     localStorage.setItem("ts_theme", theme);
     localStorage.setItem("ts-theme", theme);
   } catch (e) {}
-  renderSettingsControls();
-}
-
-function setAccent(accent) {
-  if (!VALID_ACCENTS.includes(accent)) return;
-  appearanceState.accent = accent;
-  document.documentElement.setAttribute("data-accent", accent);
-  try { localStorage.setItem("ts_accent", accent); } catch (e) {}
+  const activePal = getActivePalette();
+  applyBrandPalette(activePal.id);
   renderSettingsControls();
 }
 
@@ -191,10 +249,7 @@ function renderSettingsControls() {
     tile.classList.toggle("active", val === appearanceState.theme);
   });
 
-  document.querySelectorAll(".accent-swatch").forEach(swatch => {
-    const val = swatch.getAttribute("data-accent-val");
-    swatch.classList.toggle("active", val === appearanceState.accent);
-  });
+  updateSettingsPaletteActiveState(appearanceState.paletteId);
 
   document.querySelectorAll("#contrast-segmented .segmented-btn").forEach(btn => {
     const val = btn.getAttribute("data-contrast-val");
@@ -226,6 +281,7 @@ function renderSettingsControls() {
 
 function openSettingsModal() {
   renderSettingsControls();
+  initSettingsPaletteGrid();
   const modal = document.getElementById("settings-modal");
   if (modal) modal.classList.remove("hidden");
 }
@@ -276,6 +332,8 @@ function initSidebarState() {
 
 // Wire Settings & Sidebar Event Listeners
 function setupAppearanceAndSidebarListeners() {
+  initSettingsPaletteGrid();
+
   const topbarSettingsBtn = document.getElementById("topbar-settings-btn");
   if (topbarSettingsBtn) {
     topbarSettingsBtn.addEventListener("click", openSettingsModal);
@@ -304,13 +362,6 @@ function setupAppearanceAndSidebarListeners() {
     tile.addEventListener("click", () => {
       const val = tile.getAttribute("data-theme-val");
       if (val) setTheme(val);
-    });
-  });
-
-  document.querySelectorAll(".accent-swatch").forEach(swatch => {
-    swatch.addEventListener("click", () => {
-      const val = swatch.getAttribute("data-accent-val");
-      if (val) setAccent(val);
     });
   });
 
@@ -390,8 +441,7 @@ function setupAppearanceAndSidebarListeners() {
   if (navDashboard) {
     navDashboard.addEventListener("click", () => {
       closeSidebarMobile();
-      showView("view-app");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      navigateTo("/dashboard");
     });
   }
   const navProfile = document.getElementById("nav-item-profile");
@@ -443,14 +493,73 @@ loadAppearanceSettings();
 initSidebarState();
 setupAppearanceAndSidebarListeners();
 
-(function setClockHands() {
-  const now = new Date();
-  const minDeg = now.getMinutes() * 6;
-  const hrDeg = (now.getHours() % 12) * 30 + now.getMinutes() * 0.5;
-  const minHand = document.getElementById("clock-min");
-  const hrHand = document.getElementById("clock-hr");
-  if (minHand) minHand.style.transform = `rotate(${minDeg}deg)`;
-  if (hrHand) hrHand.style.transform = `rotate(${hrDeg}deg)`;
+// Initialize Public Homepage, Mobile Menu & Demo Pricing Listeners
+(function initPublicPageListeners() {
+  const hamburgerBtn = document.getElementById("public-hamburger-toggle");
+  const mobileDrawer = document.getElementById("public-mobile-drawer");
+  if (hamburgerBtn && mobileDrawer) {
+    hamburgerBtn.addEventListener("click", () => {
+      mobileDrawer.classList.toggle("hidden");
+    });
+  }
+
+  // Demo pricing action button
+  const demoButtons = document.querySelectorAll("#public-pricing-enroll-btn, .demo-pricing-action, #pricing-enroll-btn");
+  demoButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (auth.currentUser && auth.currentUser.emailVerified) {
+        alert("This is an illustrative $99 course demo card. In this evaluation prototype, all mock tests and AI features are free! Returning to your dashboard.");
+        navigateTo("/dashboard");
+      } else {
+        alert("This is an illustrative $99 course demo card. In this evaluation prototype, all test series and AI features are free! Please sign in or create an account to begin.");
+        navigateTo("/login");
+      }
+    });
+  });
+
+  // Global SPA Link Interceptor
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest("a");
+    if (!link) return;
+
+    const href = link.getAttribute("href");
+    const dataRoute = link.getAttribute("data-route");
+    const target = dataRoute || href;
+    if (!target) return;
+
+    // Smooth scroll for hash links
+    if (target.startsWith("#")) {
+      const targetEl = document.querySelector(target);
+      if (targetEl) {
+        e.preventDefault();
+        const homeView = document.getElementById("view-public-home");
+        const faaView = document.getElementById("view-exam-faa");
+        if (homeView && faaView && homeView.classList.contains("hidden") && faaView.classList.contains("hidden")) {
+          navigateTo("/", false);
+        }
+        targetEl.scrollIntoView({ behavior: "smooth" });
+        if (mobileDrawer) mobileDrawer.classList.add("hidden");
+      }
+      return;
+    }
+
+    // Clean SPA routes
+    if (
+      target === "/" ||
+      target === "/login" ||
+      target === "/dashboard" ||
+      target === "/exams/finance-accounts-assistant" ||
+      target.startsWith("/exams/")
+    ) {
+      e.preventDefault();
+      navigateTo(target);
+      if (mobileDrawer) mobileDrawer.classList.add("hidden");
+    }
+  });
+
+  window.addEventListener("popstate", () => {
+    routeUser(auth.currentUser);
+  });
 })();
 
 // ============================================================
@@ -648,20 +757,40 @@ async function loadUserProfile(user) {
 }
 
 async function routeUser(user) {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  updatePublicNavAuthState(user);
+
   if (user && user.emailVerified) {
     renderUserIdentity();
     
     // Show admin panel if admin
     const isAdmin = user.uid === ADMIN_UID;
     const adminTile = document.getElementById("admin-dashboard-tile");
-    if(adminTile) {
-      if(isAdmin) adminTile.classList.remove("hidden");
+    if (adminTile) {
+      if (isAdmin) adminTile.classList.remove("hidden");
       else adminTile.classList.add("hidden");
     }
 
-    showView("view-app");
-    loadSubjects();
     await loadUserProfile(user);
+
+    if (path === "/login") {
+      navigateTo("/dashboard", true);
+    } else if (path === "/dashboard") {
+      showView("view-app");
+      loadSubjects();
+    } else if (path === "/test") {
+      if (isTestActive) {
+        showView("view-test");
+      } else {
+        navigateTo("/dashboard", true);
+      }
+    } else if (path === "/results") {
+      showView("view-results");
+    } else if (path === "/exams/finance-accounts-assistant" || path.startsWith("/exams/")) {
+      showView("view-exam-faa");
+    } else {
+      showView("view-public-home");
+    }
   } else if (user && !user.emailVerified) {
     currentUserProfile = null;
     renderUserIdentity();
@@ -674,7 +803,18 @@ async function routeUser(user) {
     renderUserIdentity();
     renderAuthMode();
     if (pendingNotice) showAuthNotice(pendingNotice.ok, pendingNotice.text);
-    showView("view-auth");
+
+    if (path === "/dashboard") {
+      navigateTo("/login", true);
+    } else if (path === "/login") {
+      showView("view-auth");
+    } else if (path === "/exams/finance-accounts-assistant" || path.startsWith("/exams/")) {
+      showView("view-exam-faa");
+    } else if (path === "/test" || path === "/results") {
+      navigateTo("/login", true);
+    } else {
+      showView("view-public-home");
+    }
   }
 }
 
@@ -691,6 +831,9 @@ const actionReady = (async () => {
     window.history.replaceState({}, "", window.location.pathname);
   }
 })();
+
+// Immediate routing based on URL path on script load
+routeUser(auth.currentUser);
 
 onAuthStateChanged(auth, async () => {
   await actionReady;
@@ -1979,8 +2122,7 @@ document.getElementById("confirm-import-btn").addEventListener("click", async ()
 });
 
 document.getElementById("back-to-dashboard").addEventListener("click", () => {
-  showView("view-app");
-  loadSubjects();
+  navigateTo("/dashboard");
 });
 
 // ============================================================
@@ -3248,6 +3390,7 @@ if (homeLink) {
         exitPausedTestToDashboard();
       } else {
         showView("view-app");
+        window.history.pushState({}, "", "/dashboard");
         loadSubjects();
       }
     }

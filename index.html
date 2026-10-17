@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Test Series</title>
+<title>mashq — Test Series &amp; Practice</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oxygen:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css" />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&family=Inter:wght@400;500;600;700&family=Oxygen:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css" />
 
 <script>
   (function() {
@@ -18,6 +18,7 @@
       var f = localStorage.getItem('ts_ui_font') || 'system';
       var s = localStorage.getItem('ts_ui_size') || 'medium';
       var tf = localStorage.getItem('ts_test_font') || 'oxygen';
+      var palId = localStorage.getItem('ts_palette_id') || '1';
       var rawTs = localStorage.getItem('ts_test_size') || '100';
       var numTs = parseInt(rawTs, 10);
       var pxTs = 16;
@@ -28,6 +29,21 @@
           pxTs = Math.round(16 * (numTs / 100));
         }
       }
+      var palMap = {
+        '1': { p: '#072B61', s: '#158477', t: '#D5E4F0', m: '#1E242B' },
+        '2': { p: '#191D47', s: '#D99B26', t: '#F4EBDC', m: '#1E202B' },
+        '3': { p: '#0B4B3C', s: '#C99649', t: '#E3F1EC', m: '#182622' },
+        '4': { p: '#1E40AF', s: '#F96B5B', t: '#DBEAFE', m: '#1E293B' },
+        '5': { p: '#234238', s: '#D96846', t: '#EAEFE9', m: '#222926' },
+        '6': { p: '#1D232A', s: '#F59E0B', t: '#FEF3C7', m: '#18181B' },
+        '7': { p: '#3D251E', s: '#E07A2E', t: '#F5EBE4', m: '#2B211E' },
+        '8': { p: '#0F172A', s: '#06B6D4', t: '#E0F2FE', m: '#0F172A' },
+        '9': { p: '#381B46', s: '#E07163', t: '#F4EBF7', m: '#281D2E' },
+        '10': { p: '#134237', s: '#65A30D', t: '#ECFDF5', m: '#1B2A26' },
+        '11': { p: '#6E1A24', s: '#148578', t: '#F9EBEB', m: '#2B1D1F' },
+        '12': { p: '#2E1A68', s: '#10B981', t: '#EDE9FE', m: '#1F1B2E' }
+      };
+      var pal = palMap[palId] || palMap['1'];
       var root = document.documentElement;
       root.setAttribute('data-theme', t);
       root.setAttribute('data-accent', a);
@@ -35,7 +51,19 @@
       root.setAttribute('data-ui-font', f);
       root.setAttribute('data-ui-size', s);
       root.setAttribute('data-test-font', tf);
+      root.setAttribute('data-palette-id', palId);
       root.style.setProperty('--test-font-size', pxTs + 'px');
+      root.style.setProperty('--brand-primary', pal.p);
+      root.style.setProperty('--brand-secondary', pal.s);
+      root.style.setProperty('--brand-tint', pal.t);
+      root.style.setProperty('--brand-mono', pal.m);
+      if (t === 'dark' || t === 'lights-out') {
+        root.style.setProperty('--primary', pal.s);
+        root.style.setProperty('--accent', pal.s);
+      } else {
+        root.style.setProperty('--primary', pal.p);
+        root.style.setProperty('--accent', pal.p);
+      }
     } catch(e) {}
   })();
 </script>
@@ -91,52 +119,944 @@
 <body>
 <div id="app-root">
 
-  <!-- ============ AUTH VIEW ============ -->
-  <section id="view-auth" class="auth-shell hidden">
-    <div class="auth-visual">
-      <div>
-        <span class="brand-mark">TEST SERIES</span>
-        <h1 id="auth-headline">Sit the test.<br/>Know where you stand.</h1>
-        <p>Timed, subject-wise practice tests built from your own material — with a full breakdown of what you missed the moment you finish.</p>
+  <!-- ============ PUBLIC MARKETING HOMEPAGE ============ -->
+  <section id="view-public-home" class="public-page-shell">
+    <!-- Public Sticky Navigation Bar -->
+    <header class="public-nav-bar">
+      <div class="public-nav-container">
+        <a href="/" class="public-brand-link" data-route="/" title="mashq - Write Your Success">
+          <div class="mashq-logo-slot" data-mashq-logo="horizontal" data-mashq-size="sm"></div>
+        </a>
+
+        <nav class="public-desktop-nav" aria-label="Main Navigation">
+          <a href="#exams" class="public-nav-link">Exams</a>
+          <a href="#features" class="public-nav-link">Features</a>
+          <a href="#how-it-works" class="public-nav-link">How It Works</a>
+          <a href="#pricing" class="public-nav-link">Pricing</a>
+          <a href="#testimonials" class="public-nav-link">Reviews</a>
+          <a href="#faq" class="public-nav-link">FAQ</a>
+        </nav>
+
+        <div class="public-nav-actions">
+          <a href="/login" class="btn btn-quiet btn-sm" id="public-nav-signin-btn" data-route="/login">Sign In</a>
+          <a href="/exams/finance-accounts-assistant" class="btn btn-primary btn-sm" id="public-nav-cta-btn" data-route="/exams/finance-accounts-assistant">Get Started</a>
+          <button type="button" class="public-hamburger-btn" id="public-hamburger-toggle" aria-label="Toggle navigation menu">
+            <span></span><span></span><span></span>
+          </button>
+        </div>
       </div>
-      <svg class="exam-clock" viewBox="0 0 120 120">
-        <circle class="face" cx="60" cy="60" r="50" />
-        <g class="tick">
-          <line x1="60" y1="12" x2="60" y2="18" />
-          <line x1="60" y1="102" x2="60" y2="108" />
-          <line x1="12" y1="60" x2="18" y2="60" />
-          <line x1="102" y1="60" x2="108" y2="60" />
-        </g>
-        <line class="hand" id="clock-min" x1="60" y1="60" x2="60" y2="26" />
-        <line class="hand" id="clock-hr" x1="60" y1="60" x2="82" y2="60" />
-      </svg>
+
+      <!-- Mobile Dropdown Navigation Drawer -->
+      <div class="public-mobile-drawer hidden" id="public-mobile-drawer">
+        <nav class="public-mobile-links">
+          <a href="/exams/finance-accounts-assistant" class="public-mobile-link" data-route="/exams/finance-accounts-assistant">🎯 FAA Test Series</a>
+          <a href="#exams" class="public-mobile-link">📚 All Exams</a>
+          <a href="#features" class="public-mobile-link">✨ Platform Features</a>
+          <a href="#how-it-works" class="public-mobile-link">⏱️ How It Works</a>
+          <a href="#pricing" class="public-mobile-link">💳 Pricing ($99 Demo)</a>
+          <a href="#testimonials" class="public-mobile-link">💬 Student Reviews</a>
+          <a href="#faq" class="public-mobile-link">❓ FAQ</a>
+        </nav>
+        <div class="public-mobile-actions">
+          <a href="/login" class="btn btn-quiet btn-block" data-route="/login">Sign In</a>
+          <a href="/exams/finance-accounts-assistant" class="btn btn-primary btn-block" data-route="/exams/finance-accounts-assistant">Start FAA Practice</a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Hero Section (Magoosh-Inspired 2-Column with Window Preview) -->
+    <section class="public-hero">
+      <div class="public-container hero-grid">
+        <div class="hero-content">
+          <div class="hero-brand-pill">
+            <span class="pill-dot"></span>
+            <span class="pill-brand">mashq</span>
+            <span class="pill-sep">•</span>
+            <span class="pill-tagline">Write Your Success</span>
+          </div>
+
+          <h1 class="hero-headline">
+            Master your competitive exams with <span class="headline-highlight">precision mock tests</span>.
+          </h1>
+
+          <p class="hero-subtext">
+            Authentic exam timing, real negative marking (-0.25), instant topic-by-topic diagnostics, and an intelligent TestWise AI study companion to help you conquer every question.
+          </p>
+
+          <div class="hero-btn-group">
+            <a href="/exams/finance-accounts-assistant" class="btn btn-primary btn-lg hero-cta-btn" data-route="/exams/finance-accounts-assistant">
+              Explore FAA Test Series →
+            </a>
+            <a href="/login" class="btn btn-quiet btn-lg hero-cta-btn-alt" data-route="/login">
+              Sign In / Free Preview
+            </a>
+          </div>
+
+          <div class="hero-proof-strip">
+            <div class="proof-item">
+              <span class="proof-num">1,200+</span>
+              <span class="proof-label">Practice Questions</span>
+            </div>
+            <div class="proof-divider"></div>
+            <div class="proof-item">
+              <span class="proof-num">-0.25</span>
+              <span class="proof-label">Real JKSSB Penalty</span>
+            </div>
+            <div class="proof-divider"></div>
+            <div class="proof-item">
+              <span class="proof-num">✨ AI</span>
+              <span class="proof-label">Question Tutor</span>
+            </div>
+            <div class="proof-divider"></div>
+            <div class="proof-item">
+              <span class="proof-num">12</span>
+              <span class="proof-label">Brand Palettes</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Magoosh macOS Window Preview -->
+        <div class="hero-visual">
+          <div class="mock-window">
+            <div class="mock-window-header">
+              <div class="mock-window-dots">
+                <span class="dot red"></span>
+                <span class="dot yellow"></span>
+                <span class="dot green"></span>
+              </div>
+              <div class="mock-window-title">mashq — JKSSB FAA Mock Exam 01</div>
+              <div class="mock-window-timer">⏱️ 118:42</div>
+            </div>
+
+            <div class="mock-window-body">
+              <div class="mock-q-meta">
+                <span class="mock-q-badge">Question 14 of 120</span>
+                <span class="mock-q-subject">Accountancy &amp; Bookkeeping</span>
+              </div>
+
+              <div class="mock-q-text">
+                Which accounting convention dictates that anticipated profits should not be recorded, but all potential future losses must be immediately provided for?
+              </div>
+
+              <div class="mock-options">
+                <div class="mock-option">
+                  <span class="mock-opt-label">A</span>
+                  <span class="mock-opt-text">Consistency Convention</span>
+                </div>
+                <div class="mock-option selected">
+                  <span class="mock-opt-label">B</span>
+                  <span class="mock-opt-text">Prudence / Conservatism Concept</span>
+                  <span class="mock-check-icon">✓</span>
+                </div>
+                <div class="mock-option">
+                  <span class="mock-opt-label">C</span>
+                  <span class="mock-opt-text">Materiality Principle</span>
+                </div>
+                <div class="mock-option">
+                  <span class="mock-opt-label">D</span>
+                  <span class="mock-opt-text">Full Disclosure Principle</span>
+                </div>
+              </div>
+
+              <div class="mock-footer-row">
+                <div class="mock-palette-strip">
+                  <span class="dot-answered" title="Answered">13</span>
+                  <span class="dot-current" title="Current">14</span>
+                  <span class="dot-flagged" title="Marked">15</span>
+                  <span class="dot-unvisited" title="Unvisited">16</span>
+                  <span class="dot-unvisited">17</span>
+                </div>
+                <div class="mock-action-tags">
+                  <span class="tag-flag">Flag for Review</span>
+                  <span class="tag-save">Save &amp; Next →</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Floating AI Tutor Callout -->
+            <div class="mock-ai-callout">
+              <div class="ai-callout-header">
+                <span class="ai-callout-icon">✨</span>
+                <strong>TestWise AI Tutor:</strong>
+              </div>
+              <div class="ai-callout-body">
+                "Prudence ensures assets and revenue aren't overstated. Unearned profits are excluded until realized, while provisions are immediately made for doubtful debts."
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Exam Catalogue Section -->
+    <section id="exams" class="public-section">
+      <div class="public-container">
+        <div class="section-title-wrap text-center">
+          <div class="section-eyebrow">EXAM CATALOGUE</div>
+          <h2 class="section-heading">Targeted Test Series for Competitive Aspirants</h2>
+          <p class="section-subtext">Each test series is built according to official recruitment notifications, syllabus guidelines, and past exam trends.</p>
+        </div>
+
+        <div class="exam-cards-grid">
+          <!-- Featured Live Card: FAA -->
+          <div class="exam-card featured-exam-card">
+            <div class="exam-card-header">
+              <span class="exam-status-badge live">● Active &amp; Available</span>
+              <span class="exam-marks-badge">120 Marks • 120 Mins</span>
+            </div>
+            <h3 class="exam-card-title">JKSSB Finance Accounts Assistant (FAA)</h3>
+            <p class="exam-card-desc">
+              Comprehensive topic-wise sectional tests and 120-question full mocks designed strictly to match the official JKSSB Finance Department syllabus.
+            </p>
+            <div class="exam-syllabus-tags">
+              <span class="syllabus-tag">Accountancy (30M)</span>
+              <span class="syllabus-tag">GK J&amp;K (30M)</span>
+              <span class="syllabus-tag">Science (10M)</span>
+              <span class="syllabus-tag">Math/Stats (10M)</span>
+              <span class="syllabus-tag">Economics (10M)</span>
+              <span class="syllabus-tag">Computers (20M)</span>
+            </div>
+            <div class="exam-card-meta">
+              <span>🎯 Real -0.25 Negative Marking</span>
+              <span>⏸️ Pause &amp; Resume Enabled</span>
+            </div>
+            <div class="exam-card-footer">
+              <a href="/exams/finance-accounts-assistant" class="btn btn-primary btn-block" data-route="/exams/finance-accounts-assistant">
+                View FAA Exam Details &amp; Tests →
+              </a>
+            </div>
+          </div>
+
+          <!-- Placeholder 1: Sub-Inspector -->
+          <div class="exam-card placeholder-exam-card">
+            <div class="exam-card-header">
+              <span class="exam-status-badge coming-soon">🔒 Coming Soon</span>
+              <span class="exam-marks-badge">150 Marks</span>
+            </div>
+            <h3 class="exam-card-title">JKSSB Sub-Inspector (Executive / Armed)</h3>
+            <p class="exam-card-desc">
+              Extensive mock tests covering General Knowledge, History of J&amp;K, Reasoning, General Science, and Current Affairs for Home Department SI posts.
+            </p>
+            <div class="exam-syllabus-tags">
+              <span class="syllabus-tag">General Studies</span>
+              <span class="syllabus-tag">Reasoning</span>
+              <span class="syllabus-tag">Current Events</span>
+            </div>
+            <div class="exam-card-footer">
+              <button type="button" class="btn btn-quiet btn-block" disabled>Coming Soon</button>
+            </div>
+          </div>
+
+          <!-- Placeholder 2: J&K Bank PO -->
+          <div class="exam-card placeholder-exam-card">
+            <div class="exam-card-header">
+              <span class="exam-status-badge coming-soon">🔒 Coming Soon</span>
+              <span class="exam-marks-badge">Banking</span>
+            </div>
+            <h3 class="exam-card-title">J&amp;K Bank PO &amp; Banking Associate</h3>
+            <p class="exam-card-desc">
+              Speed drills and full-length sectional tests for Quantitative Aptitude, Logical Reasoning, and English Language for J&amp;K Bank recruitments.
+            </p>
+            <div class="exam-syllabus-tags">
+              <span class="syllabus-tag">Quant Aptitude</span>
+              <span class="syllabus-tag">Reasoning</span>
+              <span class="syllabus-tag">English</span>
+            </div>
+            <div class="exam-card-footer">
+              <button type="button" class="btn btn-quiet btn-block" disabled>Coming Soon</button>
+            </div>
+          </div>
+
+          <!-- Placeholder 3: Civil Services -->
+          <div class="exam-card placeholder-exam-card">
+            <div class="exam-card-header">
+              <span class="exam-status-badge coming-soon">🔒 Coming Soon</span>
+              <span class="exam-marks-badge">Civil Services</span>
+            </div>
+            <h3 class="exam-card-title">JKPSC / Civil Services Prelims (GS-I)</h3>
+            <p class="exam-card-desc">
+              High-yield multi-statement questions based on standard textbooks and current national and regional developments.
+            </p>
+            <div class="exam-syllabus-tags">
+              <span class="syllabus-tag">Polity &amp; Economy</span>
+              <span class="syllabus-tag">Geography</span>
+              <span class="syllabus-tag">CSAT</span>
+            </div>
+            <div class="exam-card-footer">
+              <button type="button" class="btn btn-quiet btn-block" disabled>Coming Soon</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Platform Features Section -->
+    <section id="features" class="public-section bg-alt">
+      <div class="public-container">
+        <div class="section-title-wrap text-center">
+          <div class="section-eyebrow">WHY MASHQ</div>
+          <h2 class="section-heading">Designed for Real Exam Readiness</h2>
+          <p class="section-subtext">Practice only works when it mirrors genuine exam constraints and delivers actionable performance insights.</p>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon-box">⏱️</div>
+            <h3 class="feature-title">Authentic Exam Simulator</h3>
+            <p class="feature-desc">
+              Practice under exact official conditions with real countdown timers, question palettes, answer review states, and genuine -0.25 negative marking.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-box">⏸️</div>
+            <h3 class="feature-title">Cloud Pause &amp; Resume</h3>
+            <p class="feature-desc">
+              Life happens. Securely pause any active test and save all remaining time and responses to the cloud. Pick right back up whenever you're ready.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-box">✨</div>
+            <h3 class="feature-title">TestWise AI Study Companion</h3>
+            <p class="feature-desc">
+              Powered by Google Gemini. Instantly discuss any reviewed question with an AI tutor to understand the root concept and why incorrect options fail.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-box">📊</div>
+            <h3 class="feature-title">Topic-Wise Diagnostics</h3>
+            <p class="feature-desc">
+              View immediate sectional breakdowns upon completing any test. Identify high-scoring subjects and isolate weak topics that need urgent revision.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-box">🎨</div>
+            <h3 class="feature-title">12 Curated Takhti Palettes</h3>
+            <p class="feature-desc">
+              Personalize your test environment with 12 curated brand palettes inspired by traditional writing boards. Light, Dark, and Lights-Out themes included.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-box">📱</div>
+            <h3 class="feature-title">Cross-Device Responsive</h3>
+            <p class="feature-desc">
+              Engineered with clean HTML and CSS for lightning-fast loads. Practice on your laptop, tablet, or phone without app store installations.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section id="how-it-works" class="public-section">
+      <div class="public-container">
+        <div class="section-title-wrap text-center">
+          <div class="section-eyebrow">SIMPLE 3-STEP WORKFLOW</div>
+          <h2 class="section-heading">How mashq Accelerates Your Preparation</h2>
+          <p class="section-subtext">A disciplined feedback loop built to turn practice into measurable exam day marks.</p>
+        </div>
+
+        <div class="steps-grid">
+          <div class="step-card">
+            <div class="step-num-badge">01</div>
+            <h3 class="step-title">Select Your Test</h3>
+            <p class="step-desc">Choose from full-length simulated mock exams or focus on specific syllabus chapters with topic-wise sectional drills.</p>
+          </div>
+
+          <div class="step-card">
+            <div class="step-num-badge">02</div>
+            <h3 class="step-title">Sit Under Exam Conditions</h3>
+            <p class="step-desc">Test with strict time limits and real negative penalty calculations. Flag doubtful questions and manage your exam strategy.</p>
+          </div>
+
+          <div class="step-card">
+            <div class="step-num-badge">03</div>
+            <h3 class="step-title">Diagnose &amp; Learn with AI</h3>
+            <p class="step-desc">Review your answer sheet with instant correct solutions and deep dive into difficult questions with the interactive TestWise AI tutor.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pricing Section ($99 Plan Card with Demo Indicator) -->
+    <section id="pricing" class="public-section bg-alt">
+      <div class="public-container">
+        <div class="section-title-wrap text-center">
+          <div class="section-eyebrow">TRANSPARENT VALUE</div>
+          <h2 class="section-heading">All-Inclusive Preparation Plans</h2>
+          <p class="section-subtext">Get full access to all mock tests, detailed performance diagnostics, and AI tutoring.</p>
+        </div>
+
+        <div class="pricing-card-wrap">
+          <div class="pricing-card featured-pricing">
+            <div class="pricing-badge-row">
+              <span class="pricing-tag-featured">Most Popular Plan</span>
+              <span class="pricing-demo-pill">Preview Pricing • Demo Only</span>
+            </div>
+
+            <h3 class="pricing-plan-title">mashq Complete Test Series Pass</h3>
+            <p class="pricing-plan-subtitle">Full access to JKSSB Finance Accounts Assistant mocks, sectional drills, and AI study assistant.</p>
+
+            <div class="pricing-price-box">
+              <span class="pricing-currency">$</span>
+              <span class="pricing-amount">99</span>
+              <span class="pricing-cycle">/ complete course access</span>
+            </div>
+
+            <div class="pricing-notice-box">
+              <span class="pricing-notice-icon">ℹ️</span>
+              <span class="pricing-notice-text">
+                <strong>Demonstration Display:</strong> This price card is an illustrative structural placeholder. No payments are charged; testing features are currently open for review.
+              </span>
+            </div>
+
+            <ul class="pricing-features-list">
+              <li><span class="feat-check">✓</span> <strong>Full FAA Test Series:</strong> Full mocks (120 Qs) + topic-wise sectional tests</li>
+              <li><span class="feat-check">✓</span> <strong>Authentic Scoring:</strong> Real -0.25 negative marking and rank matrix</li>
+              <li><span class="feat-check">✓</span> <strong>TestWise AI Tutor:</strong> Unlimited conversational AI question breakdowns</li>
+              <li><span class="feat-check">✓</span> <strong>Cloud State Sync:</strong> Pause on desktop, resume on mobile</li>
+              <li><span class="feat-check">✓</span> <strong>12 Curated Palettes:</strong> Custom Takhti study themes and typography controls</li>
+              <li><span class="feat-check">✓</span> <strong>Detailed Review Solutions:</strong> Step-by-step explanations for every question</li>
+              <li><span class="feat-check">✓</span> <strong>Clean &amp; Ad-Free:</strong> Zero popups, zero distractions</li>
+            </ul>
+
+            <div class="pricing-card-action">
+              <button type="button" class="btn btn-primary btn-lg btn-block demo-pricing-action" id="public-pricing-enroll-btn">
+                Enroll in Full Course ($99 Demo)
+              </button>
+            </div>
+            <div class="pricing-footnote text-center">
+              Sign in with your email or Google account to begin practicing immediately.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Testimonials / Social Proof -->
+    <section id="testimonials" class="public-section">
+      <div class="public-container">
+        <div class="section-title-wrap text-center">
+          <div class="section-eyebrow">ASPIRANT FEEDBACK</div>
+          <h2 class="section-heading">Trusted by Serious Candidates</h2>
+          <p class="section-subtext">Hear how structured practice with authentic negative marking changed candidates' test strategy.</p>
+        </div>
+
+        <div class="testimonials-grid">
+          <div class="testimonial-card">
+            <div class="testi-stars">★★★★★</div>
+            <p class="testi-quote">
+              "The -0.25 negative marking simulation is completely realistic. Practicing on mashq taught me to curb impulsive guessing, which had been hurting my scores in actual JKSSB exams."
+            </p>
+            <div class="testi-author">
+              <div class="author-avatar">TF</div>
+              <div>
+                <div class="author-name">Tariq F.</div>
+                <div class="author-target">JKSSB FAA Aspirant, Srinagar</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="testimonial-card">
+            <div class="testi-stars">★★★★★</div>
+            <p class="testi-quote">
+              "The TestWise AI tutor is brilliant. When I missed an Accountancy question on partnership dissolution, I could immediately ask why option C was wrong and got a crisp, clear explanation."
+            </p>
+            <div class="testi-author">
+              <div class="author-avatar">MB</div>
+              <div>
+                <div class="author-name">Mehak B.</div>
+                <div class="author-target">Finance Accounts Assistant Candidate, Jammu</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="testimonial-card">
+            <div class="testi-stars">★★★★★</div>
+            <p class="testi-quote">
+              "Being able to pause an active test when interrupted and resume seamlessly is a lifesaver. Plus, the 12 Takhti themes make night study sessions so much easier on the eyes."
+            </p>
+            <div class="testi-author">
+              <div class="author-avatar">SA</div>
+              <div>
+                <div class="author-name">Suhail A.</div>
+                <div class="author-target">JKSSB Aspirant, Anantnag</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ Accordion -->
+    <section id="faq" class="public-section bg-alt">
+      <div class="public-container" style="max-width: 800px;">
+        <div class="section-title-wrap text-center">
+          <div class="section-eyebrow">COMMON QUESTIONS</div>
+          <h2 class="section-heading">Frequently Asked Questions</h2>
+          <p class="section-subtext">Everything you need to know about mashq tests, scoring, and AI assistance.</p>
+        </div>
+
+        <div class="faq-accordion">
+          <details class="faq-item" open>
+            <summary class="faq-summary">
+              <span>How does the test scoring and negative marking work?</span>
+              <span class="faq-icon">+</span>
+            </summary>
+            <div class="faq-content">
+              Tests mirror official JKSSB marking rules: each correct answer earns +1.0 mark, and each incorrect answer deducts -0.25 marks. Unanswered questions do not affect your score.
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="faq-summary">
+              <span>Can I pause a test and finish it later?</span>
+              <span class="faq-icon">+</span>
+            </summary>
+            <div class="faq-content">
+              Yes! Click the Pause button at any time during an active test. Your remaining time, answered questions, and review flags are securely saved to your cloud account so you can resume on any device.
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="faq-summary">
+              <span>What is the TestWise AI Study Tutor?</span>
+              <span class="faq-icon">+</span>
+            </summary>
+            <div class="faq-content">
+              TestWise AI is an integrated study companion powered by Google Gemini. After submitting a test, click "Ask AI Tutor" on any question to ask follow-up questions, request mnemonics, or receive step-by-step concept explanations.
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="faq-summary">
+              <span>How do the 12 Brand Accent Palettes work?</span>
+              <span class="faq-icon">+</span>
+            </summary>
+            <div class="faq-content">
+              Open Settings (⚙️) from the top bar or sidebar to select from 12 curated scholar palettes (such as Classic Ink &amp; Verdigris, Royal Qalam &amp; Gold, or Sumi Ink &amp; Saffron) across Light, Dark, and Lights-Out themes.
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="faq-summary">
+              <span>Is payment required to take tests right now?</span>
+              <span class="faq-icon">+</span>
+            </summary>
+            <div class="faq-content">
+              The $99 course plan displayed on this page is a demo structural placeholder. In this current preview version, you can simply create a free account or sign in with Google to take tests.
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- Public Footer -->
+    <footer class="public-footer">
+      <div class="public-container footer-grid">
+        <div class="footer-brand-col">
+          <div class="mashq-logo-slot" data-mashq-logo="horizontal" data-mashq-size="sm"></div>
+          <div class="footer-brand-tagline">Write Your Success</div>
+          <p class="footer-desc">
+            A precision mock test and diagnostic platform built specifically for competitive exam aspirants in Jammu &amp; Kashmir.
+          </p>
+          <div class="footer-copy">&copy; 2026 mashq. All rights reserved.</div>
+        </div>
+
+        <div class="footer-nav-col">
+          <div class="footer-col-title">Exams</div>
+          <a href="/exams/finance-accounts-assistant" data-route="/exams/finance-accounts-assistant">Finance Accounts Assistant (FAA)</a>
+          <span class="footer-link-disabled">JKSSB Sub-Inspector (Coming Soon)</span>
+          <span class="footer-link-disabled">J&amp;K Bank PO (Coming Soon)</span>
+          <span class="footer-link-disabled">JKPSC Civil Services (Coming Soon)</span>
+        </div>
+
+        <div class="footer-nav-col">
+          <div class="footer-col-title">Platform</div>
+          <a href="#features">Features</a>
+          <a href="#how-it-works">How It Works</a>
+          <a href="#pricing">Pricing ($99 Demo)</a>
+          <a href="#faq">FAQ</a>
+          <a href="/login" data-route="/login">Student Sign In</a>
+        </div>
+      </div>
+    </footer>
+  </section>
+
+  <!-- ============ EXAM SPECIFIC PAGE: FINANCE ACCOUNTS ASSISTANT (FAA) ============ -->
+  <section id="view-exam-faa" class="public-page-shell hidden">
+    <!-- Shared Public Nav Bar -->
+    <header class="public-nav-bar">
+      <div class="public-nav-container">
+        <a href="/" class="public-brand-link" data-route="/" title="mashq - Write Your Success">
+          <div class="mashq-logo-slot" data-mashq-logo="horizontal" data-mashq-size="sm"></div>
+        </a>
+
+        <nav class="public-desktop-nav" aria-label="Main Navigation">
+          <a href="/" data-route="/">Home</a>
+          <a href="#faa-syllabus" class="public-nav-link">Syllabus (120M)</a>
+          <a href="#faa-pattern" class="public-nav-link">Exam Pattern</a>
+          <a href="#faa-preview" class="public-nav-link">Sample Question</a>
+          <a href="#pricing" class="public-nav-link">Pricing ($99)</a>
+        </nav>
+
+        <div class="public-nav-actions">
+          <a href="/login" class="btn btn-quiet btn-sm" data-route="/login">Sign In</a>
+          <a href="/login" class="btn btn-primary btn-sm" data-route="/login">Start FAA Practice</a>
+        </div>
+      </div>
+    </header>
+
+    <!-- FAA Breadcrumbs -->
+    <div class="faa-breadcrumb-bar">
+      <div class="public-container">
+        <div class="faa-breadcrumbs">
+          <a href="/" data-route="/">Home</a>
+          <span class="sep">›</span>
+          <a href="/#exams">Exams</a>
+          <span class="sep">›</span>
+          <span class="current">Finance Accounts Assistant (FAA)</span>
+        </div>
+      </div>
     </div>
-    <div class="auth-panel">
+
+    <!-- FAA Hero Section -->
+    <section class="faa-hero">
+      <div class="public-container">
+        <div class="faa-hero-badge-wrap">
+          <span class="exam-status-badge live">● Active Recruitment Series</span>
+          <span class="exam-marks-badge">JKSSB Finance Department</span>
+        </div>
+
+        <h1 class="faa-hero-title">
+          JKSSB Finance Accounts Assistant (FAA) Test Series
+        </h1>
+
+        <p class="faa-hero-desc">
+          Structured, syllabus-aligned mock tests and topic drills designed according to the Jammu &amp; Kashmir Services Selection Board pattern. Master Accountancy, J&amp;K General Knowledge, Science, Math, Economics, and Computer Applications.
+        </p>
+
+        <div class="faa-spec-cards-grid">
+          <div class="faa-spec-card">
+            <div class="spec-val">120</div>
+            <div class="spec-label">Total Questions</div>
+          </div>
+          <div class="faa-spec-card">
+            <div class="spec-val">120</div>
+            <div class="spec-label">Total Marks</div>
+          </div>
+          <div class="faa-spec-card">
+            <div class="spec-val">120 min</div>
+            <div class="spec-label">Exam Duration</div>
+          </div>
+          <div class="faa-spec-card">
+            <div class="spec-val">-0.25</div>
+            <div class="spec-label">Negative Penalty</div>
+          </div>
+          <div class="faa-spec-card">
+            <div class="spec-val">6</div>
+            <div class="spec-label">Syllabus Sections</div>
+          </div>
+        </div>
+
+        <div class="faa-hero-actions">
+          <a href="/login" class="btn btn-primary btn-lg" id="faa-start-btn" data-route="/login">
+            Start FAA Practice Tests Now →
+          </a>
+          <a href="#faa-syllabus" class="btn btn-quiet btn-lg">
+            View Complete Syllabus Breakdown ↓
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Complete Official Syllabus Breakdown -->
+    <section id="faa-syllabus" class="public-section bg-alt">
+      <div class="public-container">
+        <div class="section-title-wrap text-center">
+          <div class="section-eyebrow">OFFICIAL SYLLABUS BREAKDOWN</div>
+          <h2 class="section-heading">Detailed Topic Weightage &amp; Syllabus Modules</h2>
+          <p class="section-subtext">The FAA examination comprises 120 multiple choice questions distributed across six core subject areas.</p>
+        </div>
+
+        <div class="syllabus-modules-grid">
+          <!-- 1. Accountancy & Bookkeeping (30 Marks) -->
+          <div class="syllabus-module-card highlight-border">
+            <div class="module-head">
+              <div class="module-icon">📑</div>
+              <div>
+                <h3 class="module-title">Accountancy &amp; Bookkeeping</h3>
+                <span class="module-weightage">30 Marks • 25% of Paper</span>
+              </div>
+            </div>
+            <ul class="module-topics-list">
+              <li>Introduction to Financial Accounting &amp; Terms</li>
+              <li>Accounting Principles, Concepts &amp; Conventions</li>
+              <li>Voucher Approach in Accounting</li>
+              <li>Journal, Ledger, Cash Book &amp; Subsidiary Books</li>
+              <li>Bank Reconciliation Statement (BRS)</li>
+              <li>Trial Balance &amp; Rectification of Errors</li>
+              <li>Financial Statements: Trading, P&amp;L, Balance Sheet</li>
+              <li>Partnership Accounts (Admission, Retirement, Dissolution)</li>
+              <li>Auditing: Meaning, Objective &amp; Types</li>
+              <li>PFMS, GeM Portal &amp; Public Financial Rules</li>
+            </ul>
+          </div>
+
+          <!-- 2. GK with Special Reference to J&K (30 Marks) -->
+          <div class="syllabus-module-card highlight-border">
+            <div class="module-head">
+              <div class="module-icon">🏔️</div>
+              <div>
+                <h3 class="module-title">General Knowledge (Special Focus on UT of J&amp;K)</h3>
+                <span class="module-weightage">30 Marks • 25% of Paper</span>
+              </div>
+            </div>
+            <ul class="module-topics-list">
+              <li>Current Events of National and International Importance</li>
+              <li>Political &amp; Physical Divisions of India &amp; World</li>
+              <li>Climate, Crops &amp; Agriculture in India</li>
+              <li>History, Geography &amp; Economy of UT of Jammu &amp; Kashmir</li>
+              <li>J&amp;K Reorganisation Act, 2019 (Key Provisions &amp; Schedules)</li>
+              <li>Flora, Fauna, Lakes &amp; Rivers of J&amp;K</li>
+              <li>Historical Places, Heritage &amp; Tourist Destinations of J&amp;K</li>
+              <li>Centrally Sponsored Schemes &amp; Regional Initiatives</li>
+            </ul>
+          </div>
+
+          <!-- 3. Knowledge of Computers (20 Marks) -->
+          <div class="syllabus-module-card">
+            <div class="module-head">
+              <div class="module-icon">💻</div>
+              <div>
+                <h3 class="module-title">Knowledge of Computer Applications</h3>
+                <span class="module-weightage">20 Marks • 16.7% of Paper</span>
+              </div>
+            </div>
+            <ul class="module-topics-list">
+              <li>Basic Applications of Computer &amp; its Components</li>
+              <li>Fundamentals of Hardware &amp; Software</li>
+              <li>Input &amp; Output Devices, Storage Media</li>
+              <li>Operating Systems (Windows, Linux basics)</li>
+              <li>MS Office Suite: MS Word, MS Excel, MS PowerPoint</li>
+              <li>Internet, Web Browsing, Email, Search Engines</li>
+              <li>Computer Viruses, Antivirus &amp; Cyber Security Basics</li>
+            </ul>
+          </div>
+
+          <!-- 4. General Science (10 Marks) -->
+          <div class="syllabus-module-card">
+            <div class="module-head">
+              <div class="module-icon">🔬</div>
+              <div>
+                <h3 class="module-title">General Science</h3>
+                <span class="module-weightage">10 Marks • 8.3% of Paper</span>
+              </div>
+            </div>
+            <ul class="module-topics-list">
+              <li>Newton's Laws of Motion, Work, Power &amp; Energy</li>
+              <li>Electric Current, Resistance, Voltage &amp; Circuits</li>
+              <li>Chemical Reactions, Acids, Bases &amp; Salts</li>
+              <li>Metals and Non-Metals in Everyday Life</li>
+              <li>Structure of Atom, Nutrition, Respiration &amp; Excretion</li>
+              <li>Communicable &amp; Non-Communicable Diseases, Vaccines</li>
+              <li>Environmental Pollution, Ozone Depletion &amp; Greenhouse Effect</li>
+            </ul>
+          </div>
+
+          <!-- 5. Mathematics & Statistics (10 Marks) -->
+          <div class="syllabus-module-card">
+            <div class="module-head">
+              <div class="module-icon">📐</div>
+              <div>
+                <h3 class="module-title">Mathematics &amp; Statistics</h3>
+                <span class="module-weightage">10 Marks • 8.3% of Paper</span>
+              </div>
+            </div>
+            <ul class="module-topics-list">
+              <li>Theory of Probability (Basic Events &amp; Compound Probability)</li>
+              <li>Tabulation, Compilation &amp; Graphical Representation of Data</li>
+              <li>Measures of Central Tendency (Mean, Median, Mode)</li>
+              <li>Measures of Dispersion (Range, Standard Deviation)</li>
+              <li>Set Theory, Relations &amp; Functions</li>
+              <li>Matrices &amp; Determinants (Basic Computations)</li>
+              <li>Coordinate Geometry &amp; Simple Equations</li>
+            </ul>
+          </div>
+
+          <!-- 6. General Economics (10 Marks) -->
+          <div class="syllabus-module-card">
+            <div class="module-head">
+              <div class="module-icon">📈</div>
+              <div>
+                <h3 class="module-title">General Economics</h3>
+                <span class="module-weightage">10 Marks • 8.3% of Paper</span>
+              </div>
+            </div>
+            <ul class="module-topics-list">
+              <li>Introduction to Economics, Demand &amp; Supply Analysis</li>
+              <li>Elasticity of Demand &amp; Indifference Curves</li>
+              <li>National Income: GDP, GNP, NNP &amp; Per Capita Income</li>
+              <li>Inflation: Types, Causes &amp; Control Mechanisms</li>
+              <li>Fiscal Policy, Budget Formulation &amp; Deficits</li>
+              <li>Monetary Policy, RBI Functions &amp; Banking Structure</li>
+              <li>Economic Reforms in India since 1991</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sample FAA Question Interactive Preview -->
+    <section id="faa-preview" class="public-section">
+      <div class="public-container" style="max-width: 860px;">
+        <div class="section-title-wrap text-center">
+          <div class="section-eyebrow">AUTHENTIC TEST EXPERIENCE</div>
+          <h2 class="section-heading">Sample FAA Question &amp; Solution Preview</h2>
+          <p class="section-subtext">Experience how questions, negative marking, and detailed solutions are formatted in mashq.</p>
+        </div>
+
+        <div class="mock-window" style="box-shadow: 0 12px 30px rgba(0,0,0,0.08);">
+          <div class="mock-window-header">
+            <div class="mock-window-dots">
+              <span class="dot red"></span>
+              <span class="dot yellow"></span>
+              <span class="dot green"></span>
+            </div>
+            <div class="mock-window-title">Sample Question • General Knowledge (J&amp;K Special Reference)</div>
+            <div class="mock-window-timer">+1.0 / -0.25</div>
+          </div>
+
+          <div class="mock-window-body">
+            <div class="mock-q-meta">
+              <span class="mock-q-badge">Section: GK with UT of J&amp;K</span>
+              <span class="mock-q-subject">Reorganisation Act 2019</span>
+            </div>
+
+            <div class="mock-q-text">
+              Under which Schedule of the Jammu and Kashmir Reorganisation Act, 2019 are the forms of oaths or affirmations for members of the Legislative Assembly and Ministers specified?
+            </div>
+
+            <div class="mock-options">
+              <div class="mock-option">
+                <span class="mock-opt-label">A</span>
+                <span class="mock-opt-text">Second Schedule</span>
+              </div>
+              <div class="mock-option">
+                <span class="mock-opt-label">B</span>
+                <span class="mock-opt-text">Third Schedule</span>
+              </div>
+              <div class="mock-option selected">
+                <span class="mock-opt-label">C</span>
+                <span class="mock-opt-text">Fourth Schedule (Correct Answer ✓)</span>
+                <span class="mock-check-icon">✓</span>
+              </div>
+              <div class="mock-option">
+                <span class="mock-opt-label">D</span>
+                <span class="mock-opt-text">Fifth Schedule</span>
+              </div>
+            </div>
+
+            <div style="background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; padding: 14px; margin-top: 16px; font-size: 13px; line-height: 1.6;">
+              <strong style="color: var(--primary);">Detailed Solution:</strong><br/>
+              The <strong>Fourth Schedule</strong> of the Jammu and Kashmir Reorganisation Act, 2019 prescribes the forms of oaths or affirmations to be taken by Ministers, members of the Legislative Assembly, and the Chief Minister of the Union Territory of Jammu and Kashmir.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pricing Summary & CTA on FAA Page -->
+    <section class="public-section bg-alt">
+      <div class="public-container text-center" style="max-width: 680px;">
+        <span class="pricing-demo-pill" style="margin-bottom: 12px; display: inline-block;">Preview Plan • $99 Demo</span>
+        <h2 style="font-size: 28px; margin-bottom: 12px;">Ready to Begin Your FAA Preparation?</h2>
+        <p style="color: var(--text-muted); margin-bottom: 24px; font-size: 15px;">
+          Log in or create a student account to access full mock tests, section-by-section drills, and real-time AI tutor analysis.
+        </p>
+        <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+          <a href="/login" class="btn btn-primary btn-lg" data-route="/login">Sign In &amp; Start Testing →</a>
+          <a href="/" class="btn btn-quiet btn-lg" data-route="/">← Back to Homepage</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="public-footer">
+      <div class="public-container footer-grid">
+        <div class="footer-brand-col">
+          <div class="mashq-logo-slot" data-mashq-logo="horizontal" data-mashq-size="sm"></div>
+          <div class="footer-brand-tagline">Write Your Success</div>
+          <p class="footer-desc">JKSSB Finance Accounts Assistant (FAA) preparation portal.</p>
+          <div class="footer-copy">&copy; 2026 mashq. All rights reserved.</div>
+        </div>
+        <div class="footer-nav-col">
+          <div class="footer-col-title">Navigation</div>
+          <a href="/" data-route="/">Home</a>
+          <a href="/login" data-route="/login">Login</a>
+          <a href="#faa-syllabus">Syllabus</a>
+        </div>
+      </div>
+    </footer>
+  </section>
+
+  <!-- ============ AUTH VIEW (REDESIGNED MASHQ LOGIN) ============ -->
+  <section id="view-auth" class="auth-shell hidden">
+    <div class="auth-container">
+      <!-- Prominent MashQ Logo Lockup + Separate Tagline "Write Your Success" -->
+      <div class="auth-header-lockup">
+        <a href="/" class="auth-logo-link" data-route="/" title="mashq home">
+          <div class="mashq-logo-slot" data-mashq-logo="horizontal" data-mashq-size="login"></div>
+        </a>
+        <div class="auth-brand-tagline">Write Your Success</div>
+      </div>
+
+      <!-- Auth Card (Magoosh-Inspired Clean Container with Top Accent Border) -->
       <div class="auth-card">
         <h2 id="auth-title">Welcome back</h2>
-        <p class="sub" id="auth-sub">Log in to continue your prep.</p>
+        <p class="sub" id="auth-sub">Log in to continue your test preparation.</p>
         <div class="auth-error" id="auth-error"></div>
 
-        <button type="button" class="btn" style="width:100%;margin-bottom:16px;" id="google-signin-btn">Continue with Google</button>
-        <div style="text-align:center;color:var(--text-faint);font-size:12px;margin-bottom:16px;">or use email</div>
+        <button type="button" class="btn btn-google" id="google-signin-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" style="margin-right: 8px;">
+            <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.14z"/>
+            <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
+            <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
+            <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
+          </svg>
+          Continue with Google
+        </button>
+
+        <div class="auth-divider">
+          <span>or use email</span>
+        </div>
 
         <form id="auth-form">
           <div class="field">
             <label for="auth-email">Email</label>
-            <input id="auth-email" type="email" autocomplete="email" required />
+            <input id="auth-email" type="email" autocomplete="email" placeholder="student@example.com" required />
           </div>
           <div class="field">
             <label for="auth-password">Password</label>
-            <input id="auth-password" type="password" autocomplete="current-password" required minlength="6" />
+            <input id="auth-password" type="password" autocomplete="current-password" placeholder="••••••••" required minlength="6" />
           </div>
           <div style="text-align: right; margin-top: -4px; margin-bottom: 16px;">
-            <button type="button" id="forgot-pwd-btn" style="background: none; border: none; color: var(--primary); cursor: pointer; font-size: 0.9rem; padding: 0;">Forgot password?</button>
+            <button type="button" id="forgot-pwd-btn" style="background: none; border: none; color: var(--primary); cursor: pointer; font-size: 0.88rem; padding: 0;">Forgot password?</button>
           </div>
-          <button type="submit" class="btn btn-primary" style="width:100%" id="auth-submit">Log in</button>
+          <button type="submit" class="btn btn-primary btn-block" id="auth-submit">Log in</button>
         </form>
+
         <div class="auth-switch">
           <span id="auth-switch-text">New here?</span>
           <button type="button" id="auth-switch-btn">Create an account</button>
+        </div>
+
+        <div class="auth-return-link-wrap">
+          <a href="/" class="auth-return-link" data-route="/">← Return to mashq home</a>
         </div>
       </div>
     </div>
@@ -163,7 +1083,7 @@
       <aside class="app-sidebar" id="app-sidebar">
         <div class="app-sidebar-header">
           <div class="app-sidebar-brand">
-            <span class="brand-mark">TEST SERIES</span>
+            <div class="mashq-logo-slot" data-mashq-logo="horizontal" data-mashq-size="sm"></div>
           </div>
           <button type="button" class="icon-btn app-sidebar-close-btn" id="app-sidebar-close-btn" title="Close sidebar" aria-label="Close sidebar">✕</button>
         </div>
@@ -212,8 +1132,8 @@
                 <line x1="9" y1="3" x2="9" y2="21"></line>
               </svg>
             </button>
-            <div class="brand">
-              <span class="brand-mark" id="home-link" style="cursor: pointer;">TEST SERIES</span>
+            <div class="brand" id="home-link" style="cursor: pointer;" title="mashq home">
+              <div class="mashq-logo-slot" data-mashq-logo="horizontal" data-mashq-size="sm"></div>
             </div>
           </div>
           <div class="topbar-actions">
@@ -568,6 +1488,7 @@
       <div class="test-main">
         <div class="test-header">
           <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div class="mashq-logo-slot" data-mashq-logo="horizontal" data-mashq-size="compact" style="flex-shrink: 0;" title="mashq"></div>
             <div class="test-title" id="test-subject-name">Subject</div>
             <div class="test-typo-bar" id="test-typo-bar" title="Adjust test typography">
               <select id="test-font-family-select" class="test-typo-select" title="Test font family" aria-label="Test font family">
@@ -668,7 +1589,9 @@
   <!-- ============ RESULTS VIEW ============ -->
   <section id="view-results" class="hidden">
     <div class="topbar">
-      <div class="brand"><span class="brand-mark">TEST SERIES</span></div>
+      <div class="brand">
+        <div class="mashq-logo-slot" data-mashq-logo="horizontal" data-mashq-size="sm"></div>
+      </div>
       <div class="topbar-actions">
         <button class="btn btn-sm" id="back-to-dashboard">Back to tests</button>
       </div>
@@ -717,6 +1640,15 @@
       </div>
 
       <div class="settings-modal-body">
+        <!-- Brand Accent Palette -->
+        <div class="settings-group">
+          <div class="settings-group-header">
+            <div class="settings-group-title">Brand Accent Palette</div>
+            <div class="settings-group-desc">Choose from 12 curated MashQ palettes for logo treatment and application-wide accent highlights.</div>
+          </div>
+          <div class="brand-palette-grid" id="brand-palette-grid"></div>
+        </div>
+
         <!-- 1. Theme Setting -->
         <div class="settings-group">
           <div class="settings-group-header">
@@ -777,22 +1709,7 @@
           </div>
         </div>
 
-        <!-- 2. Accent Color Setting -->
-        <div class="settings-group">
-          <div class="settings-group-header">
-            <div class="settings-group-title">Accent Color</div>
-            <div class="settings-group-desc">Select an accent color for active buttons, tabs, and highlights.</div>
-          </div>
-          <div class="accent-swatches" id="accent-swatches">
-            <button type="button" class="accent-swatch swatch-purple active" data-accent-val="purple" title="Royal Purple (Magoosh Inspired)" aria-label="Purple"></button>
-            <button type="button" class="accent-swatch swatch-blue" data-accent-val="blue" title="Classic Blue" aria-label="Default Blue"></button>
-            <button type="button" class="accent-swatch swatch-green" data-accent-val="green" title="Emerald Green" aria-label="Green"></button>
-            <button type="button" class="accent-swatch swatch-yellow" data-accent-val="yellow" title="Warm Amber" aria-label="Yellow"></button>
-            <button type="button" class="accent-swatch swatch-pink" data-accent-val="pink" title="Rose Pink" aria-label="Pink"></button>
-            <button type="button" class="accent-swatch swatch-orange" data-accent-val="orange" title="Deep Orange" aria-label="Orange"></button>
-            <button type="button" class="accent-swatch swatch-black" data-accent-val="black" title="Neutral Monochrome" aria-label="Black"></button>
-          </div>
-        </div>
+
 
         <!-- 3. Contrast Setting -->
         <div class="settings-group">
@@ -871,7 +1788,10 @@
   <aside id="ai-drawer" class="ai-drawer hidden" aria-label="TestWise AI Study Assistant">
     <div class="ai-drawer-header">
       <div class="ai-drawer-title-group">
-        <div class="ai-drawer-badge" id="ai-drawer-mode-badge">✨ Question Tutor</div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+          <div class="mashq-logo-slot" data-mashq-logo="symbol" data-mashq-size="xs" title="mashq"></div>
+          <div class="ai-drawer-badge" id="ai-drawer-mode-badge" style="margin-bottom: 0;">✨ Question Tutor</div>
+        </div>
         <h3 id="ai-drawer-title" class="ai-drawer-title">Question Study</h3>
         <p id="ai-drawer-sub" class="ai-drawer-sub">Interactive study assistant powered by Google Gemini</p>
       </div>
@@ -910,6 +1830,6 @@
 
 </div>
 
-<script type="module" src="app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>

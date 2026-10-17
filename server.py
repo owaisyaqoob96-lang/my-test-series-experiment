@@ -53,6 +53,34 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
+    def do_GET(self):
+        # Serve actual static files if they exist on disk
+        req_path = self.path.split("?")[0]
+        local_path = os.path.join(BASE_DIR, req_path.lstrip("/"))
+        if os.path.isfile(local_path):
+            return super().do_GET()
+
+        # Fallback for static assets requested with subpath (e.g. /exams/styles.css)
+        base_asset = os.path.join(BASE_DIR, os.path.basename(req_path))
+        if os.path.isfile(base_asset) and req_path.endswith((".css", ".js", ".png", ".svg", ".ico", ".json", ".map", ".woff2", ".ttf")):
+            self.path = "/" + os.path.basename(req_path)
+            return super().do_GET()
+        
+        # SPA routing fallback for clean URLs (/login, /dashboard, /exams/*, /test, /results)
+        if req_path in ["/", "/login", "/dashboard", "/test", "/results"] or req_path.startswith("/exams"):
+            index_path = os.path.join(BASE_DIR, "index.html")
+            if os.path.isfile(index_path):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                with open(index_path, "rb") as f:
+                    content = f.read()
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+                return
+        
+        return super().do_GET()
+
     def do_POST(self):
         if self.path == "/api/ai-tutor":
             self.handle_ai_tutor()
