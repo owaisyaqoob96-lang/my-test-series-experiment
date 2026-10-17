@@ -3447,6 +3447,7 @@ async function callAiTutorApi(payload) {
   if (!resp.ok) {
     const err = new Error(data.error || `Server responded with status ${resp.status}`);
     err.status = resp.status;
+    err.error = data.error || err.message;
     err.needsKey = data.needsKey;
     err.help = data.help;
     err.rateLimited = data.rateLimited;
@@ -3618,13 +3619,19 @@ function renderAiError(err, onRetry) {
   errBox.style.background = "color-mix(in srgb, var(--danger) 8%, var(--surface))";
 
   if (err.needsKey) {
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
     errBox.innerHTML = `
       <h4 style="color:var(--danger);margin-top:0;">⚠️ Google Gemini API Key Required</h4>
-      <p style="font-size:13px;line-height:1.5;">${escapeHtml(err.error)}</p>
+      <p style="font-size:13px;line-height:1.5;">${escapeHtml(err.error || err.message || "Google Gemini API key is not configured.")}</p>
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px;margin:10px 0;font-size:12px;font-family:var(--font-mono, monospace);">
-        <strong>To enable AI responses locally:</strong><br/>
-        Create a <code>.env.local</code> file in your project folder with:<br/>
-        <code style="color:var(--primary);font-weight:bold;">GEMINI_API_KEY=your_gemini_api_key_here</code>
+        ${isLocal ? `
+          <strong>To enable AI responses locally:</strong><br/>
+          Add to <code>.env.local</code> in your project folder:<br/>
+          <code style="color:var(--primary);font-weight:bold;">GEMINI_API_KEY=your_gemini_api_key_here</code>
+        ` : `
+          <strong>To enable AI responses on Vercel:</strong><br/>
+          Add <code>GEMINI_API_KEY</code> in your Vercel Project under <strong>Settings &rarr; Environment Variables</strong>, then redeploy.
+        `}
       </div>
       <p style="font-size:12px;color:var(--text-muted);">Get a free API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:underline;">Google AI Studio</a> (Free of charge, no billing required).</p>
     `;

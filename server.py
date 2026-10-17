@@ -280,10 +280,20 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
                 "parts": [{"text": str(m.get("content", ""))}]
             })
 
-        # 6. Dispatch to Gemini
-        try:
-            current_model = os.environ.get("GEMINI_MODEL", GEMINI_MODEL_DEFAULT)
-            gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={current_gemini_key}"
+        # 6. Dispatch to Gemini with automatic model fallback
+        current_model = os.environ.get("GEMINI_MODEL", GEMINI_MODEL_DEFAULT)
+        models_to_try = [current_model, "gemini-3.8-flash", "gemini-2.5-flash-lite"]
+        seen_models = set()
+        unique_models = []
+        for m in models_to_try:
+            if m not in seen_models:
+                seen_models.add(m)
+                unique_models.append(m)
+
+        reply_text = None
+        last_err = ""
+        for model_name in unique_models:
+            gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={current_gemini_key}"
             gemini_payload = {
                 "systemInstruction": {"parts": [{"text": system_instruction}]},
                 "contents": gemini_contents,
@@ -299,26 +309,37 @@ class AppHandler(http.server.SimpleHTTPRequestHandler):
                 headers={"Content-Type": "application/json"},
                 method="POST"
             )
-            with urllib.request.urlopen(gemini_req, timeout=30) as resp:
-                gemini_resp = json.loads(resp.read().decode("utf-8"))
-                candidates = gemini_resp.get("candidates", [])
-                reply_text = ""
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    reply_text = "".join([p.get("text", "") for p in parts])
-                self.send_json(200, {"ok": True, "text": reply_text or "No response generated."})
-        except urllib.error.HTTPError as e:
             try:
-                err_data = json.loads(e.read().decode("utf-8"))
-                err_msg = err_data.get("error", {}).get("message", f"Gemini API error ({e.code})")
-            except Exception:
-                err_msg = f"Gemini API error ({e.code})"
-            if e.code == 429:
-                self.send_json(429, {"ok": False, "error": "Gemini rate limit exceeded. Please wait a moment.", "rateLimited": True})
-            else:
-                self.send_json(502, {"ok": False, "error": f"AI service error: {err_msg}"})
-        except Exception as e:
-            self.send_json(500, {"ok": False, "error": f"Failed communicating with AI provider: {str(e)}"})
+                with urllib.request.urlopen(gemini_req, timeout=30) as resp:
+                    gemini_resp = json.loads(resp.read().decode("utf-8"))
+                    candidates = gemini_resp.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        reply_text = "".join([p.get("text", "") for p in parts])
+                    else:
+                        reply_text = "No response generated."
+                    break
+            except urllib.error.HTTPError as e:
+                try:
+                    err_data = json.loads(e.read().decode("utf-8"))
+                    last_err = err_data.get("error", {}).get("message", f"Gemini API error ({e.code})")
+                except Exception:
+                    last_err = f"Gemini API error ({e.code})"
+                if e.code == 404:
+                    continue  # Try next model in sequence
+                elif e.code == 429:
+                    self.send_json(429, {"ok": False, "error": "Gemini rate limit exceeded. Please wait a moment.", "rateLimited": True})
+                    return
+                else:
+                    self.send_json(502, {"ok": False, "error": f"AI service error: {last_err}"})
+                    return
+            except Exception as e:
+                last_err = str(e)
+
+        if reply_text is not None:
+            self.send_json(200, {"ok": True, "text": reply_text})
+        else:
+            self.send_json(502, {"ok": False, "error": f"AI service error: {last_err or 'Failed communicating with AI provider'}"})
 
 
 class DualStackServer(http.server.ThreadingHTTPServer):
