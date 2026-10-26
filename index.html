@@ -1210,25 +1210,51 @@
 
           <!-- Step 2: Add Questions -->
           <div class="admin-section">
-            <h3 style="margin-bottom: 15px;">Step 2: Add Questions to a Test</h3>
+            <h3 style="margin-bottom: 8px;">Step 2: Add Questions to a Test</h3>
+            <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;">
+              Upload Word (.docx), PDF, text files, or paste question text directly. Our universal parser auto-detects MCQs, statement questions, matching tables, and assertion-reason formats.
+            </p>
+            
             <div class="field" style="margin-bottom: 15px;">
-              <label>Select Target Test</label>
+              <label for="target-subject">Select Target Test</label>
               <select id="target-subject" style="width:100%; padding:9px 10px; background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--radius-sm);"></select>
             </div>
             
-            <div class="upload-btn-wrapper">
-              <button class="btn btn-secondary">📄 Upload PDF or Word Doc</button>
-              <input type="file" id="file-upload" accept=".pdf,.docx,.txt" />
+            <!-- Drag and drop zone -->
+            <div class="importer-dropzone" id="importer-dropzone">
+              <input type="file" id="file-upload" accept=".docx,.pdf,.txt,.md" style="display:none;" />
+              <div class="dropzone-content">
+                <span class="dropzone-icon">📄</span>
+                <span class="dropzone-text"><strong>Drop a document here</strong> or <span style="color:var(--primary); text-decoration:underline; font-weight:600;">browse to upload</span></span>
+                <div class="dropzone-badges">
+                  <span class="file-badge">DOCX</span>
+                  <span class="file-badge">PDF</span>
+                  <span class="file-badge">TXT</span>
+                  <span class="file-badge">MD</span>
+                </div>
+              </div>
             </div>
-            <span id="upload-status" style="margin-left: 10px; font-size: 0.9rem; color: var(--text-muted);"></span>
+            <div id="upload-status" class="upload-status" style="display:none;"></div>
 
-            <textarea id="raw-questions" style="margin-top: 10px; min-height: 150px;" placeholder="Or paste text from NotebookLM, ChatGPT, or Word directly here..."></textarea>
-            
-            <div style="margin-top:15px; display:flex; gap:10px; align-items: center;">
-              <button class="btn btn-primary btn-sm" id="parse-btn">Preview Questions</button>
-              <button class="btn btn-sm hidden" id="confirm-import-btn" style="background-color: var(--success); color: white; border: none;">Confirm Import</button>
+            <div style="margin-top: 15px;">
+              <label for="raw-questions" style="display:block; margin-bottom: 6px; font-weight: 500; font-size: 0.9rem;">
+                Or paste text from Word, PDF, ChatGPT, NotebookLM, or notes:
+              </label>
+              <textarea id="raw-questions" class="importer-textarea" placeholder="Paste questions here in any format:
+1. Standard MCQs (1., A., B., C., D., Answer: ...)
+2. Statement-based questions (Statements I, II, III...)
+3. Match the Following (List I / List II or tables)
+4. Assertion–Reason questions (Assertion (A): ..., Reason (R): ...)
+5. End-of-document Answer Keys (Answer Key: 1-A, 2-C...)"></textarea>
             </div>
-            <div class="parse-report" id="parse-report" style="margin-top: 15px;"></div>
+            
+            <div class="importer-actions-bar">
+              <button class="btn btn-primary" id="parse-btn">🔍 Analyze &amp; Preview Questions</button>
+              <button class="btn btn-secondary" id="reset-import-btn" style="display:none;">Clear</button>
+            </div>
+
+            <!-- Importer Report Container -->
+            <div class="parse-report-container" id="parse-report" style="display:none;"></div>
           </div>
         </div>
       </div>

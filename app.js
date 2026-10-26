@@ -7,14 +7,12 @@ import {
   createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup,
   sendEmailVerification, applyActionCode, sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
-
 const ADMIN_UID = "PMbrCOTH61ZegHUTe2xVqDnidUm2";
 import {
   getFirestore, collection, addDoc, getDocs, getCountFromServer,
   serverTimestamp, deleteDoc, doc, updateDoc, query, where, writeBatch,
   getDoc, runTransaction, setDoc, deleteField
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
-
 import {
   MASHQ_PALETTES,
   DEFAULT_PALETTE_ID,
@@ -26,9 +24,13 @@ import {
   initSettingsPaletteGrid,
   updateSettingsPaletteActiveState
 } from "./branding.js";
-
+import {
+  runQuestionImportPipeline,
+  extractTextFromDocx,
+  extractTextFromPdf,
+  extractFromClipboard
+} from "./question-importer.js";
 let draggedTestId = null; // admin drag-and-drop reordering (slide-sorter style)
-
 const firebaseConfig = {
   apiKey: "AIzaSyDjHj-QuqyD58jHuJopsml8e1U7jMiUuOc",
   authDomain: "my-test-series-experiment.firebaseapp.com",
@@ -38,11 +40,9 @@ const firebaseConfig = {
   appId: "1:238556622937:web:232ecf120516b875658148",
   measurementId: "G-W37NP3BZ0W"
 };
-
 const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
-
 // ============================================================
 // View switching & Theme
 // ============================================================
@@ -55,7 +55,6 @@ const views = [
   "view-test",
   "view-results"
 ];
-
 export function showView(name) {
   views.forEach(v => {
     const el = document.getElementById(v);
@@ -63,7 +62,6 @@ export function showView(name) {
   });
   renderAllBrandLogos();
 }
-
 export function updatePublicNavAuthState(user) {
   const signinBtn = document.getElementById("public-nav-signin-btn");
   const ctaBtn = document.getElementById("public-nav-cta-btn");
@@ -91,7 +89,6 @@ export function updatePublicNavAuthState(user) {
     }
   }
 }
-
 export function navigateTo(path, replace = false) {
   if (replace) {
     window.history.replaceState({}, "", path);
@@ -101,7 +98,6 @@ export function navigateTo(path, replace = false) {
   routeUser(auth.currentUser);
   window.scrollTo(0, 0);
 }
-
 // ============================================================
 // Appearance Design System & Settings Manager
 // ============================================================
@@ -114,15 +110,12 @@ const APPEARANCE_DEFAULTS = {
   testFont: "oxygen",
   testSize: 100 // percent (80% to 150%)
 };
-
 const VALID_THEMES = ["light", "dark", "lights-out"];
 const VALID_CONTRASTS = ["standard", "more"];
 const VALID_UI_FONTS = ["system", "inter", "oxygen", "arial", "times"];
 const VALID_UI_SIZES = ["small", "medium", "large"];
 const VALID_TEST_FONTS = ["times", "oxygen", "inter", "system", "arial"];
-
 let appearanceState = { ...APPEARANCE_DEFAULTS };
-
 function parseStoredTestSize(val) {
   if (!val) return APPEARANCE_DEFAULTS.testSize;
   const num = parseInt(val, 10);
@@ -132,7 +125,6 @@ function parseStoredTestSize(val) {
   }
   return Math.min(150, Math.max(80, num));
 }
-
 function loadAppearanceSettings() {
   try {
     const storedTheme = localStorage.getItem("ts_theme") || localStorage.getItem("ts-theme");
@@ -142,7 +134,6 @@ function loadAppearanceSettings() {
     const storedUiSize = localStorage.getItem("ts_ui_size");
     const storedTestFont = localStorage.getItem("ts_test_font");
     const storedTestSize = localStorage.getItem("ts_test_size");
-
     appearanceState.theme = VALID_THEMES.includes(storedTheme) ? storedTheme : APPEARANCE_DEFAULTS.theme;
     appearanceState.paletteId = parseInt(storedPalId, 10) || DEFAULT_PALETTE_ID;
     appearanceState.contrast = VALID_CONTRASTS.includes(storedContrast) ? storedContrast : APPEARANCE_DEFAULTS.contrast;
@@ -158,7 +149,6 @@ function loadAppearanceSettings() {
   renderSettingsControls();
   renderAllBrandLogos();
 }
-
 function applyAllAppearanceSettings() {
   const root = document.documentElement;
   root.setAttribute("data-theme", appearanceState.theme);
@@ -167,13 +157,10 @@ function applyAllAppearanceSettings() {
   root.setAttribute("data-ui-font", appearanceState.uiFont);
   root.setAttribute("data-ui-size", appearanceState.uiSize);
   root.setAttribute("data-test-font", appearanceState.testFont);
-
   const pxSize = Math.round(16 * (appearanceState.testSize / 100));
   root.style.setProperty("--test-font-size", `${pxSize}px`);
-
   updateTestSizeDisplays();
 }
-
 function updateTestSizeDisplays() {
   const text = `${appearanceState.testSize}%`;
   const liveIndicator = document.getElementById("test-font-size-indicator");
@@ -181,7 +168,6 @@ function updateTestSizeDisplays() {
   if (liveIndicator) liveIndicator.textContent = text;
   if (modalIndicator) modalIndicator.textContent = text;
 }
-
 function setTheme(theme) {
   if (!VALID_THEMES.includes(theme)) return;
   appearanceState.theme = theme;
@@ -194,7 +180,6 @@ function setTheme(theme) {
   applyBrandPalette(activePal.id);
   renderSettingsControls();
 }
-
 function setContrast(contrast) {
   if (!VALID_CONTRASTS.includes(contrast)) return;
   appearanceState.contrast = contrast;
@@ -202,7 +187,6 @@ function setContrast(contrast) {
   try { localStorage.setItem("ts_contrast", contrast); } catch (e) {}
   renderSettingsControls();
 }
-
 function setUiFont(font) {
   if (!VALID_UI_FONTS.includes(font)) return;
   appearanceState.uiFont = font;
@@ -210,7 +194,6 @@ function setUiFont(font) {
   try { localStorage.setItem("ts_ui_font", font); } catch (e) {}
   renderSettingsControls();
 }
-
 function setUiSize(size) {
   if (!VALID_UI_SIZES.includes(size)) return;
   appearanceState.uiSize = size;
@@ -218,7 +201,6 @@ function setUiSize(size) {
   try { localStorage.setItem("ts_ui_size", size); } catch (e) {}
   renderSettingsControls();
 }
-
 function setTestFont(font) {
   if (!VALID_TEST_FONTS.includes(font)) return;
   appearanceState.testFont = font;
@@ -226,7 +208,6 @@ function setTestFont(font) {
   try { localStorage.setItem("ts_test_font", font); } catch (e) {}
   renderSettingsControls();
 }
-
 function adjustTestSize(delta) {
   const newSize = Math.min(150, Math.max(80, appearanceState.testSize + delta));
   appearanceState.testSize = newSize;
@@ -235,68 +216,55 @@ function adjustTestSize(delta) {
   try { localStorage.setItem("ts_test_size", String(newSize)); } catch (e) {}
   updateTestSizeDisplays();
 }
-
 function resetTestSize() {
   appearanceState.testSize = 100;
   document.documentElement.style.setProperty("--test-font-size", "16px");
   try { localStorage.setItem("ts_test_size", "100"); } catch (e) {}
   updateTestSizeDisplays();
 }
-
 function renderSettingsControls() {
   document.querySelectorAll(".theme-tile").forEach(tile => {
     const val = tile.getAttribute("data-theme-val");
     tile.classList.toggle("active", val === appearanceState.theme);
   });
-
   updateSettingsPaletteActiveState(appearanceState.paletteId);
-
   document.querySelectorAll("#contrast-segmented .segmented-btn").forEach(btn => {
     const val = btn.getAttribute("data-contrast-val");
     btn.classList.toggle("active", val === appearanceState.contrast);
   });
-
   const uiFontSelect = document.getElementById("ui-font-select");
   if (uiFontSelect && uiFontSelect.value !== appearanceState.uiFont) {
     uiFontSelect.value = appearanceState.uiFont;
   }
-
   document.querySelectorAll("#ui-size-segmented .segmented-btn").forEach(btn => {
     const val = btn.getAttribute("data-ui-size-val");
     btn.classList.toggle("active", val === appearanceState.uiSize);
   });
-
   const settingsTestFont = document.getElementById("settings-test-font-select");
   if (settingsTestFont && settingsTestFont.value !== appearanceState.testFont) {
     settingsTestFont.value = appearanceState.testFont;
   }
-
   const headerTestFont = document.getElementById("test-font-family-select");
   if (headerTestFont && headerTestFont.value !== appearanceState.testFont) {
     headerTestFont.value = appearanceState.testFont;
   }
-
   updateTestSizeDisplays();
 }
-
 function openSettingsModal() {
   renderSettingsControls();
   initSettingsPaletteGrid();
   const modal = document.getElementById("settings-modal");
   if (modal) modal.classList.remove("hidden");
 }
-
 function closeSettingsModal() {
   const modal = document.getElementById("settings-modal");
   if (modal) modal.classList.add("hidden");
 }
-
 // App Sidebar State & Management
 function toggleSidebar() {
   const sidebar = document.getElementById("app-sidebar");
   const backdrop = document.getElementById("app-sidebar-backdrop");
   if (!sidebar) return;
-
   const isMobile = window.innerWidth <= 768;
   if (isMobile) {
     const isOpen = sidebar.classList.toggle("open");
@@ -308,14 +276,12 @@ function toggleSidebar() {
     } catch (e) {}
   }
 }
-
 function closeSidebarMobile() {
   const sidebar = document.getElementById("app-sidebar");
   const backdrop = document.getElementById("app-sidebar-backdrop");
   if (sidebar) sidebar.classList.remove("open");
   if (backdrop) backdrop.classList.add("hidden");
 }
-
 function initSidebarState() {
   const sidebar = document.getElementById("app-sidebar");
   if (!sidebar) return;
@@ -329,16 +295,13 @@ function initSidebarState() {
     } catch (e) {}
   }
 }
-
 // Wire Settings & Sidebar Event Listeners
 function setupAppearanceAndSidebarListeners() {
   initSettingsPaletteGrid();
-
   const topbarSettingsBtn = document.getElementById("topbar-settings-btn");
   if (topbarSettingsBtn) {
     topbarSettingsBtn.addEventListener("click", openSettingsModal);
   }
-
   const navSettingsBtn = document.getElementById("nav-item-settings");
   if (navSettingsBtn) {
     navSettingsBtn.addEventListener("click", () => {
@@ -346,7 +309,6 @@ function setupAppearanceAndSidebarListeners() {
       openSettingsModal();
     });
   }
-
   const settingsModalClose = document.getElementById("settings-modal-close");
   if (settingsModalClose) {
     settingsModalClose.addEventListener("click", closeSettingsModal);
@@ -357,33 +319,28 @@ function setupAppearanceAndSidebarListeners() {
       if (e.target === settingsModal) closeSettingsModal();
     });
   }
-
   document.querySelectorAll(".theme-tile").forEach(tile => {
     tile.addEventListener("click", () => {
       const val = tile.getAttribute("data-theme-val");
       if (val) setTheme(val);
     });
   });
-
   document.querySelectorAll("#contrast-segmented .segmented-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const val = btn.getAttribute("data-contrast-val");
       if (val) setContrast(val);
     });
   });
-
   const uiFontSelect = document.getElementById("ui-font-select");
   if (uiFontSelect) {
     uiFontSelect.addEventListener("change", (e) => setUiFont(e.target.value));
   }
-
   document.querySelectorAll("#ui-size-segmented .segmented-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const val = btn.getAttribute("data-ui-size-val");
       if (val) setUiSize(val);
     });
   });
-
   const settingsTestFont = document.getElementById("settings-test-font-select");
   if (settingsTestFont) {
     settingsTestFont.addEventListener("change", (e) => setTestFont(e.target.value));
@@ -400,7 +357,6 @@ function setupAppearanceAndSidebarListeners() {
   if (settingsTestReset) {
     settingsTestReset.addEventListener("click", resetTestSize);
   }
-
   const headerTestFont = document.getElementById("test-font-family-select");
   if (headerTestFont) {
     headerTestFont.addEventListener("change", (e) => setTestFont(e.target.value));
@@ -417,7 +373,6 @@ function setupAppearanceAndSidebarListeners() {
   if (headerTestReset) {
     headerTestReset.addEventListener("click", resetTestSize);
   }
-
   const sidebarToggle = document.getElementById("app-sidebar-toggle");
   if (sidebarToggle) {
     sidebarToggle.addEventListener("click", toggleSidebar);
@@ -436,7 +391,6 @@ function setupAppearanceAndSidebarListeners() {
   if (sidebarBackdrop) {
     sidebarBackdrop.addEventListener("click", closeSidebarMobile);
   }
-
   const navDashboard = document.getElementById("nav-item-dashboard");
   if (navDashboard) {
     navDashboard.addEventListener("click", () => {
@@ -462,7 +416,6 @@ function setupAppearanceAndSidebarListeners() {
   if (sidebarSignout) {
     sidebarSignout.addEventListener("click", () => signOut(auth));
   }
-
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       const settingsModal = document.getElementById("settings-modal");
@@ -478,7 +431,6 @@ function setupAppearanceAndSidebarListeners() {
       closeSidebarMobile();
     }
   });
-
   const legacyToggle = document.getElementById("theme-toggle");
   if (legacyToggle) {
     legacyToggle.addEventListener("click", () => {
@@ -487,12 +439,10 @@ function setupAppearanceAndSidebarListeners() {
     });
   }
 }
-
 // Run appearance and sidebar initialization
 loadAppearanceSettings();
 initSidebarState();
 setupAppearanceAndSidebarListeners();
-
 // Initialize Public Homepage, Mobile Menu & Demo Pricing Listeners
 (function initPublicPageListeners() {
   const hamburgerBtn = document.getElementById("public-hamburger-toggle");
@@ -502,7 +452,6 @@ setupAppearanceAndSidebarListeners();
       mobileDrawer.classList.toggle("hidden");
     });
   }
-
   // Demo pricing action button
   const demoButtons = document.querySelectorAll("#public-pricing-enroll-btn, .demo-pricing-action, #pricing-enroll-btn");
   demoButtons.forEach(btn => {
@@ -516,17 +465,14 @@ setupAppearanceAndSidebarListeners();
       }
     });
   });
-
   // Global SPA Link Interceptor
   document.addEventListener("click", (e) => {
     const link = e.target.closest("a");
     if (!link) return;
-
     const href = link.getAttribute("href");
     const dataRoute = link.getAttribute("data-route");
     const target = dataRoute || href;
     if (!target) return;
-
     // Smooth scroll for hash links
     if (target.startsWith("#")) {
       const targetEl = document.querySelector(target);
@@ -542,7 +488,6 @@ setupAppearanceAndSidebarListeners();
       }
       return;
     }
-
     // Clean SPA routes
     if (
       target === "/" ||
@@ -556,12 +501,10 @@ setupAppearanceAndSidebarListeners();
       if (mobileDrawer) mobileDrawer.classList.add("hidden");
     }
   });
-
   window.addEventListener("popstate", () => {
     routeUser(auth.currentUser);
   });
 })();
-
 // ============================================================
 // Auth
 // ============================================================
@@ -574,7 +517,6 @@ const authSubmit = document.getElementById("auth-submit");
 const authSwitchText = document.getElementById("auth-switch-text");
 const authSwitchBtn = document.getElementById("auth-switch-btn");
 const forgotPwdBtn = document.getElementById("forgot-pwd-btn");
-
 function renderAuthMode() {
   authError.textContent = "";
   if (isSignupMode) {
@@ -594,7 +536,6 @@ function renderAuthMode() {
   }
 }
 authSwitchBtn.addEventListener("click", () => { isSignupMode = !isSignupMode; renderAuthMode(); });
-
 function friendlyAuthError(err) {
   const code = err && err.code ? err.code : "";
   if (code.includes("email-already-in-use")) return "That email already has an account — try logging in instead.";
@@ -604,15 +545,12 @@ function friendlyAuthError(err) {
   if (code.includes("too-many-requests")) return "Too many attempts — please wait a bit and try again.";
   return "Something went wrong. Please try again.";
 }
-
 const DISPOSABLE_DOMAINS = new Set(["mailinator.com","guerrillamail.com","tempmail.com","yopmail.com"]); 
 let pendingNotice = null;
-
 function showAuthNotice(ok, text) {
   authError.style.color = ok ? "var(--success)" : "var(--danger)";
   authError.textContent = text;
 }
-
 authForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   authError.style.color = "var(--danger)";
@@ -639,7 +577,6 @@ authForm.addEventListener("submit", async (e) => {
     authSubmit.disabled = false;
   }
 });
-
 if (forgotPwdBtn) {
   forgotPwdBtn.addEventListener("click", async () => {
     const email = document.getElementById("auth-email").value.trim();
@@ -657,7 +594,6 @@ if (forgotPwdBtn) {
     }
   });
 }
-
 document.getElementById("google-signin-btn").addEventListener("click", async () => {
   authError.style.color = "var(--danger)";
   authError.textContent = "Connecting to Google...";
@@ -667,10 +603,8 @@ document.getElementById("google-signin-btn").addEventListener("click", async () 
     authError.textContent = `Google Error: ${err.message || err.code}`;
   }
 });
-
 document.getElementById("signout-btn").addEventListener("click", () => signOut(auth));
 document.getElementById("verify-signout-btn").addEventListener("click", () => signOut(auth));
-
 document.getElementById("verify-check-btn").addEventListener("click", async () => {
   const verifyError = document.getElementById("verify-error");
   verifyError.style.color = "var(--danger)";
@@ -682,7 +616,6 @@ document.getElementById("verify-check-btn").addEventListener("click", async () =
     verifyError.textContent = "Not activated yet — click the link in the email first.";
   }
 });
-
 document.getElementById("verify-resend-btn").addEventListener("click", async () => {
   const verifyError = document.getElementById("verify-error");
   try {
@@ -694,15 +627,12 @@ document.getElementById("verify-resend-btn").addEventListener("click", async () 
     verifyError.textContent = "Please wait a bit before requesting another link.";
   }
 });
-
 let currentUserProfile = null;
-
 function renderUserIdentity() {
   const whoamiEl = document.getElementById("whoami");
   const sidebarName = document.getElementById("sidebar-user-name");
   const sidebarMeta = document.getElementById("sidebar-user-meta");
   const sidebarAvatar = document.getElementById("sidebar-user-avatar");
-
   if (currentUserProfile && currentUserProfile.fullName && currentUserProfile.username) {
     if (whoamiEl) whoamiEl.textContent = `${currentUserProfile.fullName} (@${currentUserProfile.username})`;
     if (sidebarName) sidebarName.textContent = currentUserProfile.fullName;
@@ -727,7 +657,6 @@ function renderUserIdentity() {
     if (sidebarAvatar) sidebarAvatar.textContent = "👤";
   }
 }
-
 async function loadUserProfile(user) {
   if (!user) {
     currentUserProfile = null;
@@ -755,11 +684,9 @@ async function loadUserProfile(user) {
     renderMyExams();
   }
 }
-
 async function routeUser(user) {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
   updatePublicNavAuthState(user);
-
   if (user && user.emailVerified) {
     renderUserIdentity();
     
@@ -770,9 +697,7 @@ async function routeUser(user) {
       if (isAdmin) adminTile.classList.remove("hidden");
       else adminTile.classList.add("hidden");
     }
-
     await loadUserProfile(user);
-
     if (path === "/login") {
       navigateTo("/dashboard", true);
     } else if (path === "/dashboard") {
@@ -803,7 +728,6 @@ async function routeUser(user) {
     renderUserIdentity();
     renderAuthMode();
     if (pendingNotice) showAuthNotice(pendingNotice.ok, pendingNotice.text);
-
     if (path === "/dashboard") {
       navigateTo("/login", true);
     } else if (path === "/login") {
@@ -817,7 +741,6 @@ async function routeUser(user) {
     }
   }
 }
-
 const urlParams = new URLSearchParams(window.location.search);
 const actionReady = (async () => {
   if (urlParams.get("mode") === "verifyEmail" && urlParams.get("oobCode")) {
@@ -831,15 +754,12 @@ const actionReady = (async () => {
     window.history.replaceState({}, "", window.location.pathname);
   }
 })();
-
 // Immediate routing based on URL path on script load
 routeUser(auth.currentUser);
-
 onAuthStateChanged(auth, async () => {
   await actionReady;
   await routeUser(auth.currentUser);
 });
-
 // ============================================================
 // Central Exam Configuration (Batch 2)
 // ============================================================
@@ -851,12 +771,9 @@ export const EXAMS_CONFIG = [
   { id: "upsc_cse", name: "UPSC Civil Services Examination", shortName: "UPSC CSE" },
   { id: "jkpsc_cce", name: "JKPSC Combined Competitive Examination", shortName: "JKPSC CCE" }
 ];
-
 export const VALID_EXAM_IDS = EXAMS_CONFIG.map(e => e.id);
 export const EXAMS_MAP = Object.fromEntries(EXAMS_CONFIG.map(e => [e.id, e]));
-
 let selectedExamFilter = null; // null means All Tests
-
 function renderExamSelectOptions() {
   const newSelect = document.getElementById("new-exam-id");
   const editSelect = document.getElementById("edit-exam-id");
@@ -873,15 +790,12 @@ function renderExamSelectOptions() {
     if (prev) editSelect.value = prev;
   }
 }
-
 function renderMyExams() {
   const chipsContainer = document.getElementById("my-exams-chips");
   if (!chipsContainer) return;
-
   const targetExams = (currentUserProfile && Array.isArray(currentUserProfile.targetExams))
     ? currentUserProfile.targetExams
     : [];
-
   if (targetExams.length === 0) {
     selectedExamFilter = null;
     chipsContainer.innerHTML = `
@@ -891,18 +805,15 @@ function renderMyExams() {
     `;
     return;
   }
-
   // Reset selected filter if user deselected that exam
   if (selectedExamFilter && !targetExams.includes(selectedExamFilter)) {
     selectedExamFilter = null;
   }
-
   let html = `
     <button type="button" class="exam-chip ${selectedExamFilter === null ? 'active' : ''}" data-exam-id="all">
       All Tests
     </button>
   `;
-
   targetExams.forEach(examId => {
     const exam = EXAMS_MAP[examId];
     if (exam) {
@@ -914,9 +825,7 @@ function renderMyExams() {
       `;
     }
   });
-
   chipsContainer.innerHTML = html;
-
   chipsContainer.querySelectorAll(".exam-chip").forEach(btn => {
     btn.addEventListener("click", () => {
       const eid = btn.getAttribute("data-exam-id");
@@ -932,14 +841,12 @@ function renderMyExams() {
     });
   });
 }
-
 const editMyExamsBtn = document.getElementById("edit-my-exams-btn");
 if (editMyExamsBtn) {
   editMyExamsBtn.addEventListener("click", () => {
     openProfileModal(false);
   });
 }
-
 // ============================================================
 // Student Profile Management (Batch 1 & 2)
 // ============================================================
@@ -949,7 +856,6 @@ const profileSaveBtn = document.getElementById("profile-save-btn");
 const profileCancelBtn = document.getElementById("profile-cancel-btn");
 const profilePhotoInput = document.getElementById("profile-photourl");
 const profileAvatarDisplay = document.getElementById("profile-avatar-display");
-
 function updateAvatarPreview(url) {
   if (!profileAvatarDisplay) return;
   profileAvatarDisplay.innerHTML = "";
@@ -969,17 +875,14 @@ function updateAvatarPreview(url) {
     profileAvatarDisplay.textContent = "👤";
   }
 }
-
 if (profilePhotoInput) {
   profilePhotoInput.addEventListener("input", (e) => {
     updateAvatarPreview(e.target.value);
   });
 }
-
 function openProfileModal(isFirstTimeSetup = false) {
   if (!profileModal) return;
   profileError.textContent = "";
-
   const titleEl = document.getElementById("profile-modal-title");
   const subEl = document.getElementById("profile-modal-sub");
   if (isFirstTimeSetup) {
@@ -989,7 +892,6 @@ function openProfileModal(isFirstTimeSetup = false) {
     if (titleEl) titleEl.textContent = "Student Profile";
     if (subEl) subEl.textContent = "Manage your student identity and account details.";
   }
-
   const user = auth.currentUser;
   document.getElementById("profile-email").value = (user && user.email) || "";
   document.getElementById("profile-fullname").value = (currentUserProfile && currentUserProfile.fullName) || "";
@@ -998,7 +900,6 @@ function openProfileModal(isFirstTimeSetup = false) {
   document.getElementById("profile-dob").value = (currentUserProfile && currentUserProfile.dob) || "";
   document.getElementById("profile-gender").value = (currentUserProfile && currentUserProfile.gender) || "";
   document.getElementById("profile-bio").value = (currentUserProfile && currentUserProfile.bio) || "";
-
   // Render Target Exams Checkboxes
   const targetExamsContainer = document.getElementById("profile-target-exams-container");
   if (targetExamsContainer) {
@@ -1015,39 +916,31 @@ function openProfileModal(isFirstTimeSetup = false) {
       `;
     }).join("");
   }
-
   updateAvatarPreview(currentUserProfile ? currentUserProfile.photoURL : "");
-
   profileModal.classList.remove("hidden");
 }
-
 if (profileCancelBtn) {
   profileCancelBtn.addEventListener("click", () => {
     if (profileModal) profileModal.classList.add("hidden");
   });
 }
-
 const profileBtn = document.getElementById("profile-btn");
 if (profileBtn) {
   profileBtn.addEventListener("click", () => {
     openProfileModal(false);
   });
 }
-
 if (profileSaveBtn) {
   profileSaveBtn.addEventListener("click", async () => {
     const user = auth.currentUser;
     if (!user) return;
-
     profileError.textContent = "";
-
     const rawFullName = document.getElementById("profile-fullname").value.trim();
     const rawUsername = document.getElementById("profile-username").value.trim();
     const photoURL = document.getElementById("profile-photourl").value.trim();
     const dob = document.getElementById("profile-dob").value;
     const gender = document.getElementById("profile-gender").value;
     const bio = document.getElementById("profile-bio").value.trim();
-
     // Validation
     if (!rawFullName || rawFullName.length < 2) {
       profileError.textContent = "Please enter your full name (at least 2 characters).";
@@ -1057,7 +950,6 @@ if (profileSaveBtn) {
       profileError.textContent = "Full name cannot exceed 60 characters.";
       return;
     }
-
     if (!rawUsername) {
       profileError.textContent = "Please choose a username.";
       return;
@@ -1079,7 +971,6 @@ if (profileSaveBtn) {
       profileError.textContent = "Username cannot contain spaces.";
       return;
     }
-
     if (bio.length > 200) {
       profileError.textContent = "Bio cannot exceed 200 characters.";
       return;
@@ -1107,7 +998,6 @@ if (profileSaveBtn) {
         return;
       }
     }
-
     const targetExamCbs = document.querySelectorAll(".profile-target-exam-cb");
     const targetExams = [];
     targetExamCbs.forEach(cb => {
@@ -1115,49 +1005,40 @@ if (profileSaveBtn) {
         targetExams.push(cb.value);
       }
     });
-
     const usernameLower = rawUsername.toLowerCase();
-
     profileSaveBtn.disabled = true;
     profileSaveBtn.textContent = "Saving...";
-
     try {
       await runTransaction(db, async (transaction) => {
         const userRef = doc(db, "users", user.uid);
         const userSnap = await transaction.get(userRef);
         const existingData = userSnap.exists() ? userSnap.data() : null;
         const oldUsernameLower = existingData ? (existingData.usernameLower || (existingData.username ? existingData.username.toLowerCase() : null)) : null;
-
         const isUsernameChanging = !oldUsernameLower || oldUsernameLower !== usernameLower;
         const newUsernameRef = doc(db, "usernames", usernameLower);
         const newUsernameSnap = await transaction.get(newUsernameRef);
-
         if (newUsernameSnap.exists()) {
           const claimedUid = newUsernameSnap.data().uid;
           if (claimedUid !== user.uid) {
             throw new Error(`The username "@${rawUsername}" is already taken. Please choose another.`);
           }
         }
-
         let oldUsernameRef = null;
         let oldUsernameSnap = null;
         if (isUsernameChanging && oldUsernameLower) {
           oldUsernameRef = doc(db, "usernames", oldUsernameLower);
           oldUsernameSnap = await transaction.get(oldUsernameRef);
         }
-
         // Writes phase (all reads are done)
         if (oldUsernameRef && oldUsernameSnap && oldUsernameSnap.exists() && oldUsernameSnap.data().uid === user.uid) {
           transaction.delete(oldUsernameRef);
         }
-
         if (isUsernameChanging || !newUsernameSnap.exists()) {
           transaction.set(newUsernameRef, {
             uid: user.uid,
             updatedAt: serverTimestamp()
           });
         }
-
         const profilePayload = {
           fullName: rawFullName,
           username: rawUsername,
@@ -1170,7 +1051,6 @@ if (profileSaveBtn) {
           targetExams: targetExams,
           updatedAt: serverTimestamp()
         };
-
         if (!existingData) {
           profilePayload.createdAt = serverTimestamp();
           transaction.set(userRef, profilePayload);
@@ -1178,7 +1058,6 @@ if (profileSaveBtn) {
           transaction.update(userRef, profilePayload);
         }
       });
-
       // Reload profile & update topbar
       await loadUserProfile(user);
       if (profileModal) profileModal.classList.add("hidden");
@@ -1191,8 +1070,6 @@ if (profileSaveBtn) {
     }
   });
 }
-
-
 // ============================================================
 // Dashboard: Folders, Tests & Admin Panel
 // ============================================================
@@ -1200,9 +1077,7 @@ let subjectsCache = [];
 let navSubject = null; 
 let navType = null;    
 let userPausedTests = {}; // subjectId -> inProgressDraft
-
 const folderIconSvg = `<svg class="folder-icon" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
-
 async function loadSubjects() {
   const listEl = document.getElementById("test-list");
   if(listEl) listEl.innerHTML = `<div class="test-row-empty">Loading…</div>`;
@@ -1222,7 +1097,6 @@ async function loadSubjects() {
       ...data
     });
   });
-
   for (const s of subjectsCache) {
     try {
       const countSnap = await getCountFromServer(collection(db, "subjects", s.id, "questions"));
@@ -1231,11 +1105,9 @@ async function loadSubjects() {
       s.questionCount = 0;
     }
   }
-
   // Load in-progress paused tests for the authenticated student from multi-layer storage
   if (auth.currentUser) {
     userPausedTests = {};
-
     // 1. Check localStorage first (instant local persistence on this machine)
     try {
       const prefix = `ts_paused_${auth.currentUser.uid}_`;
@@ -1249,7 +1121,6 @@ async function loadSubjects() {
         }
       }
     } catch (e) {}
-
     // 2. Check users/{uid} document in Firestore Cloud (cross-device persistent cloud storage)
     try {
       const userSnap = await getDoc(doc(db, "users", auth.currentUser.uid));
@@ -1262,7 +1133,6 @@ async function loadSubjects() {
     } catch (e) {
       console.warn("Could not read inProgressTests from users/{uid}:", e);
     }
-
     // 3. Check inProgressTests collection if accessible
     try {
       const pausedSnap = await getDocs(collection(db, "inProgressTests", auth.currentUser.uid, "tests"));
@@ -1278,27 +1148,22 @@ async function loadSubjects() {
   renderTestList();
   renderSubjectSelect();
 }
-
 window.goHomeFolder = function() { navSubject = null; navType = null; renderTestList(); };
 window.goSubjectFolder = function() { navType = null; renderTestList(); };
 window.openSubject = function(sub) { navSubject = sub; renderTestList(); };
 window.openType = function(typ) { navType = typ; renderTestList(); };
-
 async function renderTestList() {
   const listEl = document.getElementById("test-list");
   const breadcrumb = document.getElementById("dashboard-breadcrumb");
   listEl.innerHTML = "";
   
   const isAdmin = auth.currentUser && auth.currentUser.uid === ADMIN_UID;
-
   const filteredCache = selectedExamFilter
     ? subjectsCache.filter(s => s.examId === selectedExamFilter)
     : subjectsCache;
-
   const filterBadgeHtml = selectedExamFilter && EXAMS_MAP[selectedExamFilter]
     ? ` &nbsp;<span style="font-size:12px;color:var(--primary);font-weight:normal;">[${escapeHtml(EXAMS_MAP[selectedExamFilter].shortName || EXAMS_MAP[selectedExamFilter].name)}]</span>`
     : "";
-
   if (!navSubject) {
     breadcrumb.innerHTML = `📁 All Exams${filterBadgeHtml}`;
     const uniqueSubjects = [...new Set(filteredCache.map(s => s.subject))];
@@ -1327,7 +1192,6 @@ async function renderTestList() {
       listEl.innerHTML = `<div class="test-row-empty">No categories found in this subject for this exam.</div>`;
       return;
     }
-
     uniqueTypes.forEach(typ => {
       const el = document.createElement("div");
       el.className = "folder-card";
@@ -1351,23 +1215,18 @@ async function renderTestList() {
       listEl.innerHTML = `<div class="test-row-empty">No tests found in this folder.</div>`;
       return;
     }
-
     for (let idx = 0; idx < tests.length; idx++) {
       const t = tests[idx];
       const row = document.createElement("div");
       row.className = "test-row";
       row.style.gridColumn = "1 / -1"; 
-
       const hasQuestions = (t.questionCount || 0) > 0;
-
       const upBtn = isAdmin ? `<button class="btn btn-sm reorder-btn" ${idx === 0 ? "disabled" : ""} data-dir="up" data-reorder-id="${t.id}" title="Move up">▲</button>` : "";
       const downBtn = isAdmin ? `<button class="btn btn-sm reorder-btn" ${idx === tests.length - 1 ? "disabled" : ""} data-dir="down" data-reorder-id="${t.id}" title="Move down">▼</button>` : "";
       const editBtn = isAdmin ? `<button class="btn btn-sm edit-btn" style="background-color: var(--primary); color: white; margin-left: 8px; border: none;" data-edit-id="${t.id}">Edit</button>` : "";
       const deleteBtn = isAdmin ? `<button class="btn btn-sm delete-btn" style="background-color: var(--danger); color: white; margin-left: 8px; border: none;" data-delete-id="${t.id}">Delete</button>` : "";
-
       const pausedDraft = userPausedTests[t.id];
       const isPaused = !!pausedDraft;
-
       let lastAttempt = null;
       try {
         const attemptSnap = await getDocs(query(
@@ -1381,12 +1240,10 @@ async function renderTestList() {
           if (!lastAttempt || ms > lastAttempt._ms) lastAttempt = { ...a, _ms: ms };
         });
       } catch (e) { /* no prior attempt, or not readable yet — treat as unattempted */ }
-
       const pct = lastAttempt && lastAttempt.total > 0 ? Math.round((lastAttempt.correct / lastAttempt.total) * 100) : null;
       let attemptBadge = lastAttempt
         ? `<div class="test-row-meta" style="color:var(--success);margin-top:4px;">Attempted · last score ${pct}%</div>`
         : "";
-
       if (isPaused) {
         const remSec = pausedDraft.remainingSeconds || 0;
         const mm = String(Math.floor(remSec / 60)).padStart(2, "0");
@@ -1395,24 +1252,19 @@ async function renderTestList() {
         const totalQ = (pausedDraft.questionIds || []).length || t.questionCount || 0;
         attemptBadge = `<div class="paused-badge">⏸️ In Progress · ${mm}:${ss} left (${ansCount}/${totalQ} answered)</div>`;
       }
-
       let startLabel = hasQuestions ? (lastAttempt ? "Retake test" : "Start test") : "No questions yet";
       let startBtnStyle = "";
       if (isPaused) {
         startLabel = "▶️ Resume test";
         startBtnStyle = "background-color: var(--accent); color: white; border-color: var(--accent);";
       }
-
       const discardBtn = isPaused
         ? `<button class="btn btn-quiet btn-sm discard-draft-btn" style="color:var(--danger);font-size:12px;" data-subject-id="${t.id}" title="Discard paused attempt and start fresh">Discard</button>`
         : "";
-
       const dragHandle = isAdmin ? `<span class="drag-handle" title="Drag to reorder">⠿</span>` : "";
-
       const examBadge = t.examId && EXAMS_MAP[t.examId]
         ? `<span class="badge" style="background:var(--surface-raised);border:1px solid var(--line-strong);color:var(--accent-strong);font-size:11px;padding:2px 7px;border-radius:12px;margin-left:6px;font-weight:500;">🎯 ${escapeHtml(EXAMS_MAP[t.examId].shortName || EXAMS_MAP[t.examId].name)}</span>`
         : "";
-
       row.innerHTML = `
         <div class="test-row-info" style="display:flex;align-items:flex-start;gap:10px;">
           ${dragHandle}
@@ -1430,7 +1282,6 @@ async function renderTestList() {
           ${upBtn}${downBtn}${editBtn}${deleteBtn}
         </div>
       `;
-
       if (isAdmin) {
         row.draggable = true;
         row.addEventListener("dragstart", () => {
@@ -1464,17 +1315,14 @@ async function renderTestList() {
           }
         });
       }
-
       listEl.appendChild(row);
     }
-
     listEl.querySelectorAll(".discard-draft-btn").forEach(btn => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         discardPausedTest(btn.getAttribute("data-subject-id"), false);
       });
     });
-
     listEl.querySelectorAll(".start-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         const sid = btn.getAttribute("data-subject-id");
@@ -1486,7 +1334,6 @@ async function renderTestList() {
         }
       });
     });
-
     if (isAdmin) {
       listEl.querySelectorAll(".delete-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
@@ -1505,7 +1352,6 @@ async function renderTestList() {
           openEditModal(btn.getAttribute("data-edit-id"));
         });
       });
-
       listEl.querySelectorAll(".reorder-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
           const id = btn.getAttribute("data-reorder-id");
@@ -1513,11 +1359,9 @@ async function renderTestList() {
           const idx = tests.findIndex(x => x.id === id);
           const swapIdx = dir === "up" ? idx - 1 : idx + 1;
           if (swapIdx < 0 || swapIdx >= tests.length) return;
-
           const a = tests[idx], b = tests[swapIdx];
           const orderA = a.order != null ? a.order : (a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : Date.now());
           const orderB = b.order != null ? b.order : (b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : Date.now());
-
           btn.disabled = true;
           try {
             await updateDoc(doc(db, "subjects", a.id), { order: orderB });
@@ -1532,7 +1376,6 @@ async function renderTestList() {
     }
   }
 }
-
 function renderSubjectSelect() {
   const select = document.getElementById("target-subject");
   if(select) {
@@ -1541,7 +1384,6 @@ function renderSubjectSelect() {
     ).join("");
   }
 }
-
 // ---------------- ADMIN: Create Test Container ----------------
 document.getElementById("create-subject-btn").addEventListener("click", async () => {
   const subjectInput = document.getElementById("new-subject").value.trim() || "General";
@@ -1549,11 +1391,9 @@ document.getElementById("create-subject-btn").addEventListener("click", async ()
   const testNameInput = document.getElementById("new-test-name").value.trim() || "Untitled Test";
   const durationInput = parseInt(document.getElementById("new-duration").value, 10) || 30;
   const examIdInput = document.getElementById("new-exam-id") ? document.getElementById("new-exam-id").value : "";
-
   const btn = document.getElementById("create-subject-btn");
   btn.disabled = true;
   btn.textContent = "Creating...";
-
   try {
     await addDoc(collection(db, "subjects"), { 
       subject: subjectInput,
@@ -1578,10 +1418,8 @@ document.getElementById("create-subject-btn").addEventListener("click", async ()
     btn.textContent = "Create Test Container";
   }
 });
-
 // ---------------- ADMIN: Edit Modal Logic ----------------
 const editModal = document.getElementById("edit-test-modal");
-
 async function openEditModal(testId) {
   const test = subjectsCache.find(s => s.id === testId);
   if(!test) return;
@@ -1598,23 +1436,18 @@ async function openEditModal(testId) {
   editModal.classList.remove("hidden");
   await renderEditQuestionsList(testId);
 }
-
 async function renderEditQuestionsList(testId) {
   const listEl = document.getElementById("edit-questions-list");
   const countEl = document.getElementById("edit-q-count");
   listEl.innerHTML = '<div style="padding:14px;color:var(--text-muted);font-size:13px;">Loading\u2026</div>';
-
   const snap = await getDocs(collection(db, "subjects", testId, "questions"));
   const qs = [];
   snap.forEach(d => qs.push({ id: d.id, ...d.data() }));
-
   if (countEl) countEl.textContent = "(" + qs.length + ")";
-
   if (qs.length === 0) {
     listEl.innerHTML = '<div style="padding:14px;color:var(--text-muted);font-size:13px;">No questions yet. Use \u201cAdd New Question\u201d below.</div>';
     return;
   }
-
   // Build HTML with empty inputs; values are set programmatically below for XSS safety
   listEl.innerHTML = qs.map((q, i) => {
     const correctIdx = q.correctIndex != null ? q.correctIndex : 0;
@@ -1651,7 +1484,6 @@ async function renderEditQuestionsList(testId) {
       '</div>' +
     '</details>';
   }).join("");
-
   // Populate field values programmatically (safe against XSS in attribute values)
   const cards = listEl.querySelectorAll(".eq-card");
   qs.forEach((q, i) => {
@@ -1662,7 +1494,6 @@ async function renderEditQuestionsList(testId) {
     card.querySelector(".eq-topic").value = q.topic || "";
     card.querySelector(".eq-explanation").value = q.explanation || "";
   });
-
   // Attach per-question Save and Delete handlers
   cards.forEach(card => {
     const saveBtn = card.querySelector(".eq-save-btn");
@@ -1676,7 +1507,6 @@ async function renderEditQuestionsList(testId) {
       const correctIndex = parseInt(card.querySelector(".eq-correct").value, 10);
       const topic = card.querySelector(".eq-topic").value.trim();
       const explanation = card.querySelector(".eq-explanation").value.trim();
-
       if (!text) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Question text is required."; return; }
       if (nonEmptyOpts.length < 2) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "At least 2 options are required."; return; }
       let seenEmpty = false;
@@ -1685,7 +1515,6 @@ async function renderEditQuestionsList(testId) {
         else if (seenEmpty) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Fill options from A onwards without gaps."; return; }
       }
       if (correctIndex >= nonEmptyOpts.length) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Correct answer exceeds the number of options."; return; }
-
       saveBtn.disabled = true;
       statusEl.style.color = "var(--text-muted)";
       statusEl.textContent = "Saving\u2026";
@@ -1705,7 +1534,6 @@ async function renderEditQuestionsList(testId) {
         statusEl.textContent = "Error: " + e.message;
       } finally { saveBtn.disabled = false; }
     });
-
     const delBtn = card.querySelector(".eq-delete-btn");
     delBtn.addEventListener("click", async () => {
       if (!confirm("Delete this question? This cannot be undone.")) return;
@@ -1723,12 +1551,10 @@ async function renderEditQuestionsList(testId) {
     });
   });
 }
-
 document.getElementById("cancel-edit-btn").addEventListener("click", () => {
   editModal.classList.add("hidden");
   loadSubjects();
 });
-
 document.getElementById("save-edit-btn").addEventListener("click", async () => {
   const id = document.getElementById("edit-test-id").value;
   const newSubject = document.getElementById("edit-subject").value.trim() || "General";
@@ -1760,7 +1586,6 @@ document.getElementById("save-edit-btn").addEventListener("click", async () => {
     btn.textContent = "Save Changes";
   }
 });
-
 // ---------------- ADMIN: Add Question Handler ----------------
 document.getElementById("add-q-btn").addEventListener("click", async () => {
   const testId = document.getElementById("edit-test-id").value;
@@ -1777,7 +1602,6 @@ document.getElementById("add-q-btn").addEventListener("click", async () => {
   const correctIndex = parseInt(document.getElementById("add-q-correct").value, 10);
   const topic = document.getElementById("add-q-topic").value.trim();
   const explanation = document.getElementById("add-q-explanation").value.trim();
-
   // Validation
   if (!testId) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "No test selected."; return; }
   if (!text) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Question text is required."; return; }
@@ -1788,18 +1612,14 @@ document.getElementById("add-q-btn").addEventListener("click", async () => {
     else if (seenEmpty) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Fill options from A onwards without gaps."; return; }
   }
   if (correctIndex >= nonEmptyOpts.length) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Correct answer exceeds the number of options."; return; }
-
   addBtn.disabled = true;
   statusEl.style.color = "var(--text-muted)";
   statusEl.textContent = "Adding\u2026";
-
   try {
     const qData = { text, options: nonEmptyOpts, correctIndex, createdAt: serverTimestamp() };
     if (topic) qData.topic = topic;
     if (explanation) qData.explanation = explanation;
-
     await addDoc(collection(db, "subjects", testId, "questions"), qData);
-
     // Clear the form
     document.getElementById("add-q-text").value = "";
     document.getElementById("add-q-optA").value = "";
@@ -1809,11 +1629,9 @@ document.getElementById("add-q-btn").addEventListener("click", async () => {
     document.getElementById("add-q-correct").value = "0";
     document.getElementById("add-q-topic").value = "";
     document.getElementById("add-q-explanation").value = "";
-
     statusEl.style.color = "var(--success)";
     statusEl.textContent = "Question added!";
     setTimeout(() => { statusEl.textContent = ""; }, 2500);
-
     // Refresh the question list and count
     await renderEditQuestionsList(testId);
   } catch (e) {
@@ -1823,314 +1641,673 @@ document.getElementById("add-q-btn").addEventListener("click", async () => {
     addBtn.disabled = false;
   }
 });
-
 // ============================================================
-// DOCUMENT UPLOAD & EXTRACTION LOGIC (PDF, WORD, TXT)
+// UNIVERSAL QUESTION IMPORTER & INTERACTIVE PREVIEW ENGINE
 // ============================================================
-document.getElementById("file-upload").addEventListener("change", async function(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const statusText = document.getElementById("upload-status");
-  const rawBox = document.getElementById("raw-questions");
-  statusText.textContent = "Extracting text... please wait.";
-  statusText.style.color = "var(--primary)";
-
-  try {
-    let extractedText = "";
-
-    // 1. Handle Text Files
-    if (file.type === "text/plain") {
-      extractedText = await file.text();
-    } 
-    // 2. Handle PDF Files
-    else if (file.type === "application/pdf") {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map(item => item.str).join(" ");
-        extractedText += pageText + "\n\n";
-      }
-    } 
-    // 3. Handle Word Documents (.docx)
-    else if (file.name.endsWith(".docx")) {
-      const arrayBuffer = await file.arrayBuffer();
-      const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
-      extractedText = result.value;
-    } 
-    else {
-      throw new Error("Unsupported file format. Please upload PDF, Word (.docx), or TXT.");
-    }
-
-    // Success! Dump text into the box for parsing
-    rawBox.value = extractedText;
-    statusText.textContent = "Extraction complete! Click 'Preview Questions'.";
-    statusText.style.color = "var(--success)";
-
-  } catch (error) {
-    console.error(error);
-    statusText.textContent = "Error extracting file: " + error.message;
-    statusText.style.color = "var(--danger)";
-  }
-  
-  // Reset file input so you can upload the same file again if needed
-  event.target.value = '';
-});
-
-// ============================================================
-// INTELLIGENT RAW TEXT PARSER (State Machine Architecture)
-// ============================================================
-function parseQuestions(rawText) {
-  
-  // FIXED BUG: Safely escaping the backtick character for the bundler
-  let cleanRaw = rawText
-    .replace(/\*\*/g, '')           
-    .replace(/###\s*/g, '')         
-    .replace(/^\s*\*\s+/gm, '')     
-    .replace(/[`]/g, '');             
-
-  const lines = cleanRaw.replace(/\r\n/g, '\n').split('\n');
-  const results = [];
-  const errors = [];
-  let currentQ = null;
-
-  function finalizeQuestion() {
-    if (!currentQ) return;
-    
-    currentQ.text = currentQ.text.trim();
-    if (currentQ.explanation) currentQ.explanation = currentQ.explanation.trim();
-    if (currentQ.topic) currentQ.topic = currentQ.topic.trim();
-
-    if (!currentQ.text) {
-       errors.push(`A block was skipped because it lacked recognizable question text.`);
-    } else if (currentQ.options.length < 2) {
-       errors.push(`Question "${currentQ.text.substring(0, 30)}...": Skipped because it didn't have enough clear options (found ${currentQ.options.length}).`);
-    } else if (currentQ.correctIndex === null) {
-       errors.push(`Question "${currentQ.text.substring(0, 30)}...": Skipped because no valid answer was found.`);
-    } else {
-       const qToSave = {
-         text: currentQ.text,
-         options: currentQ.options.map(o => o.trim()),
-         correctIndex: currentQ.correctIndex,
-         createdAt: serverTimestamp()
-       };
-       if (currentQ.topic) qToSave.topic = currentQ.topic;
-       if (currentQ.explanation) qToSave.explanation = currentQ.explanation;
-       results.push(qToSave);
-    }
-    currentQ = null;
-  }
-
-  function startNewQuestion(firstLine) {
-    finalizeQuestion(); 
-    const cleanText = firstLine.replace(/^(?:q(?:ue(?:stion)?)?\.?\s*(?:no\.?)?\s*\d+|(?:\(\d+\))|\d+[\.\)\-:])\s*/i, "");
-    currentQ = {
-      text: cleanText,
-      options: [],
-      correctIndex: null,
-      topic: null,
-      explanation: null,
-      state: 'QUESTION'
-    };
-  }
-
-  const optionRegex = /^(?:[*\-\+]\s*)?(?:([A-Da-d])[\.\:\-\)]|(?:\(([A-Da-d])\)))\s+(.+)$/i;
-  const ansRegexLetter = /^(?:correct\s*)?(?:answer|ans|key|correct option|correct)[\.\:\=\-]?\s*\(?([A-Da-d])\)?(?:\s|$)/i;
-  const ansRegexText = /^(?:correct\s*)?(?:answer|ans|key|correct option|correct)[\.\:\=\-]?\s*(.+)$/i;
-  const topicRegex = /^topic\s*[\.\:\=\-]\s*(.+)$/i;
-  const expRegex = /^explanation\s*[\.\:\=\-]\s*(.+)$/i;
-  const metaRegex = /^(?:source|reference|difficulty|level|chapter|category|tags|notes|bloom's taxonomy)\s*[\.\:\=\-]\s*(.+)$/i;
-  const newQMarkerRegex = /^(?:q(?:ue(?:stion)?)?\.?\s*(?:no\.?)?\s*\d+|(?:\(\d+\))|\d+[\.\)\-:])(?:\s+|$)/i;
-
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i].trim();
-    if (!line) continue;
-
-    if (newQMarkerRegex.test(line)) {
-        if (!currentQ || currentQ.options.length > 0 || currentQ.correctIndex !== null) {
-            startNewQuestion(line);
-            continue;
-        }
-    }
-
-    if (!currentQ) {
-        startNewQuestion(line);
-        continue;
-    }
-
-    const optMatch = line.match(optionRegex);
-    const ansLetterMatch = line.match(ansRegexLetter);
-    const ansTextMatch = !ansLetterMatch ? line.match(ansRegexText) : null;
-    const topicMatch = line.match(topicRegex);
-    const expMatch = line.match(expRegex);
-    const metaMatch = line.match(metaRegex);
-    const isRecognizedTag = optMatch || ansLetterMatch || ansTextMatch || topicMatch || expMatch || metaMatch;
-
-    if (currentQ.correctIndex !== null && !isRecognizedTag && currentQ.state !== 'EXPLANATION') {
-        startNewQuestion(line);
-        continue;
-    }
-
-    if (expMatch) {
-        currentQ.explanation = expMatch[1];
-        currentQ.state = 'EXPLANATION';
-        continue;
-    }
-
-    if (topicMatch) {
-        currentQ.topic = topicMatch[1];
-        currentQ.state = 'METADATA';
-        continue;
-    }
-
-    if (metaMatch) {
-        currentQ.state = 'METADATA';
-        continue;
-    }
-
-    if (ansLetterMatch) {
-        const letter = ansLetterMatch[1].toUpperCase();
-        currentQ.correctIndex = letter.charCodeAt(0) - 65;
-        currentQ.state = 'METADATA';
-        continue;
-    }
-
-    if (ansTextMatch && currentQ.correctIndex === null) {
-        const textAns = ansTextMatch[1].trim().toLowerCase();
-        let found = -1;
-        for (let o = 0; o < currentQ.options.length; o++) {
-            let optClean = currentQ.options[o].toLowerCase().replace(/^[*\-\+]\s*/, '').trim();
-            if (optClean === textAns || textAns.includes(optClean)) {
-                found = o; break;
-            }
-        }
-        if (found !== -1) currentQ.correctIndex = found;
-        currentQ.state = 'METADATA';
-        continue;
-    }
-
-    if (optMatch && currentQ.state !== 'METADATA' && currentQ.state !== 'EXPLANATION') {
-        currentQ.options.push(optMatch[3]); 
-        currentQ.state = 'OPTIONS';
-        continue;
-    }
-
-    if (currentQ.state === 'QUESTION') {
-        currentQ.text += (currentQ.text ? "\n" : "") + line;
-    } else if (currentQ.state === 'OPTIONS') {
-         if (currentQ.options.length > 0) {
-             currentQ.options[currentQ.options.length - 1] += "\n" + line;
-         }
-    } else if (currentQ.state === 'EXPLANATION') {
-         currentQ.explanation += "\n" + line;
-    }
-  }
-
-  finalizeQuestion();
-  return { results, errors };
+let parsedQuestionsBatch = [];
+let importerActiveFilter = "all";
+let isImportingQuestions = false;
+function getSelectedTestInfo() {
+  const select = document.getElementById("target-subject");
+  if (!select || !select.value) return null;
+  const testId = select.value;
+  const testObj = subjectsCache.find(s => s.id === testId);
+  return { id: testId, name: testObj ? testObj.testName : "Selected Test", test: testObj };
 }
-
-// ============================================================
-// Preview and Import Workflow
-// ============================================================
-let pendingImport = [];
-
-document.getElementById("parse-btn").addEventListener("click", () => {
-  const subjectId = document.getElementById("target-subject").value;
-  const raw = document.getElementById("raw-questions").value;
-  const reportEl = document.getElementById("parse-report");
-  const confirmBtn = document.getElementById("confirm-import-btn");
-
-  if (!subjectId) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Create a test container first.</span>`; return; }
-  if (!raw.trim()) { reportEl.innerHTML = `<span class="err" style="color:var(--danger)">Paste or upload some questions first.</span>`; return; }
-
-  const { results, errors } = parseQuestions(raw);
-  pendingImport = results; 
-
-  let html = `<div style="padding: 15px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; margin-top: 15px;">
-                <h3 style="margin-bottom: 10px; font-size: 1.1rem;">Preview Summary</h3>
-                <p style="margin: 0 0 5px 0;"><strong>Valid questions found:</strong> <span style="color:var(--success); font-weight:bold;">${results.length}</span></p>
-                <p style="margin: 0 0 10px 0;"><strong>Needs review / Skipped:</strong> <span style="color:var(--danger); font-weight:bold;">${errors.length}</span></p>`;
-
-  if (errors.length > 0) {
-    let errorList = errors.map(e => `<li>${escapeHtml(e)}</li>`).join("");
-    html += `<div style="background: rgba(220, 38, 38, 0.1); color: var(--danger); padding: 10px; border-radius: 6px; font-size: 0.9rem; margin-bottom: 10px;">
-               <strong>Errors to fix:</strong>
-               <ul style="margin: 5px 0 0 20px;">${errorList}</ul>
-             </div>`;
+// Drag & Drop and File Upload
+const dropzoneEl = document.getElementById("importer-dropzone");
+const fileInputEl = document.getElementById("file-upload");
+const uploadStatusEl = document.getElementById("upload-status");
+const rawQuestionsBox = document.getElementById("raw-questions");
+const resetImportBtn = document.getElementById("reset-import-btn");
+const parseBtn = document.getElementById("parse-btn");
+const parseReportContainer = document.getElementById("parse-report");
+if (dropzoneEl && fileInputEl) {
+  dropzoneEl.addEventListener("click", () => fileInputEl.click());
+  dropzoneEl.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropzoneEl.classList.add("dragover");
+  });
+  dropzoneEl.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropzoneEl.classList.remove("dragover");
+  });
+  dropzoneEl.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropzoneEl.classList.remove("dragover");
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+      await processImportFile(e.dataTransfer.files[0]);
+    }
+  });
+  fileInputEl.addEventListener("change", async (e) => {
+    if (e.target.files && e.target.files[0]) {
+      await processImportFile(e.target.files[0]);
+    }
+    e.target.value = "";
+  });
+}
+// Paste Event Handler with Structured Clipboard Support
+if (rawQuestionsBox) {
+  rawQuestionsBox.addEventListener("paste", (e) => {
+    const clipboard = e.clipboardData;
+    if (!clipboard) return;
+    const structured = extractFromClipboard(clipboard);
+    const plain = clipboard.getData("text/plain") || "";
+    // If structured extraction enhanced the text (e.g. converted tables to List I / List II)
+    if (structured && structured.length > 20 && structured !== plain) {
+      e.preventDefault();
+      const start = rawQuestionsBox.selectionStart;
+      const end = rawQuestionsBox.selectionEnd;
+      const text = rawQuestionsBox.value;
+      rawQuestionsBox.value = text.substring(0, start) + structured + text.substring(end);
+      rawQuestionsBox.selectionStart = rawQuestionsBox.selectionEnd = start + structured.length;
+      if (resetImportBtn) resetImportBtn.style.display = "inline-block";
+    }
+  });
+  rawQuestionsBox.addEventListener("input", () => {
+    if (resetImportBtn) {
+      resetImportBtn.style.display = rawQuestionsBox.value.trim() ? "inline-block" : "none";
+    }
+  });
+}
+if (resetImportBtn) {
+  resetImportBtn.addEventListener("click", () => {
+    if (rawQuestionsBox) rawQuestionsBox.value = "";
+    if (uploadStatusEl) {
+      uploadStatusEl.textContent = "";
+      uploadStatusEl.style.display = "none";
+    }
+    if (parseReportContainer) {
+      parseReportContainer.innerHTML = "";
+      parseReportContainer.style.display = "none";
+    }
+    parsedQuestionsBatch = [];
+    resetImportBtn.style.display = "none";
+  });
+}
+async function processImportFile(file) {
+  if (!file) return;
+  if (uploadStatusEl) {
+    uploadStatusEl.style.display = "block";
+    uploadStatusEl.style.color = "var(--primary)";
+    uploadStatusEl.innerHTML = `⏳ Extracting text from <strong>${escapeHtml(file.name)}</strong>... please wait.`;
   }
-
-  if (results.length > 0) {
-    let optionsHtml = results[0].options.map((opt, i) => {
-        let isCorrect = (i === results[0].correctIndex) ? '✅ <em>(Correct)</em>' : '';
-        return `<li style="margin-bottom:5px;">${String.fromCharCode(65+i)}) ${escapeHtml(opt)} ${isCorrect}</li>`;
-    }).join('');
-
-    let topicHtml = results[0].topic ? `<p style="margin:10px 0 0 0;"><strong>Topic:</strong> ${escapeHtml(results[0].topic)}</p>` : '';
-    let expHtml = results[0].explanation ? `<p style="margin:10px 0 0 0;"><strong>Explanation:</strong> ${escapeHtml(results[0].explanation)}</p>` : '';
-
-    html += `<details style="cursor:pointer; font-size: 0.9rem; color: var(--text-muted); margin-top: 10px;">
-               <summary>Click to view the first parsed question as a sample</summary>
-               <div style="padding: 15px; border: 1px dashed var(--line-strong); margin-top: 10px; color: var(--text); text-align: left; background: var(--bg);">
-                 <p style="margin-top:0;"><strong>Q:</strong> ${escapeHtml(results[0].text)}</p>
-                 <ul style="margin:10px 0 0 20px;">
-                   ${optionsHtml}
-                 </ul>
-                 ${topicHtml}
-                 ${expHtml}
-               </div>
-             </details>`;
-             
-    confirmBtn.classList.remove("hidden");
-    confirmBtn.innerText = `Confirm Import (${results.length} questions)`;
-  } else {
-    confirmBtn.classList.add("hidden");
-  }
-
-  html += `</div>`;
-  reportEl.innerHTML = html;
-});
-
-document.getElementById("confirm-import-btn").addEventListener("click", async () => {
-  const subjectId = document.getElementById("target-subject").value;
-  const reportEl = document.getElementById("parse-report");
-  const confirmBtn = document.getElementById("confirm-import-btn");
-  const parseBtn = document.getElementById("parse-btn");
-
-  confirmBtn.disabled = true;
-  parseBtn.disabled = true;
-  confirmBtn.innerText = "Importing...";
-
   try {
-    await Promise.all(pendingImport.map(q => addDoc(collection(db, "subjects", subjectId, "questions"), q)));
-    reportEl.innerHTML = `<div style="padding: 15px; background: rgba(16, 185, 129, 0.1); color: var(--success); border-radius: 8px; margin-top: 15px; font-weight: bold; text-align:center;">
-      ✅ Successfully imported ${pendingImport.length} questions!
-    </div>`;
-    document.getElementById("raw-questions").value = "";
-    document.getElementById("upload-status").textContent = ""; // Clear file upload text
-    pendingImport = [];
-    confirmBtn.classList.add("hidden");
+    let extracted = "";
+    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+    if (ext === ".docx") {
+      const buffer = await file.arrayBuffer();
+      extracted = await extractTextFromDocx(buffer);
+    } else if (ext === ".pdf") {
+      const buffer = await file.arrayBuffer();
+      extracted = await extractTextFromPdf(buffer);
+    } else if (ext === ".txt" || ext === ".md") {
+      extracted = await file.text();
+    } else {
+      throw new Error(`Unsupported file type (${ext}). Please upload .docx, .pdf, .txt, or .md.`);
+    }
+    if (!extracted || !extracted.trim()) {
+      throw new Error("No readable text found in document. If it is a scanned PDF, please use digital text or paste directly.");
+    }
+    if (rawQuestionsBox) {
+      rawQuestionsBox.value = extracted;
+    }
+    if (resetImportBtn) resetImportBtn.style.display = "inline-block";
+    if (uploadStatusEl) {
+      const lineCount = extracted.split("\n").filter(l => l.trim()).length;
+      uploadStatusEl.style.color = "var(--success)";
+      uploadStatusEl.innerHTML = `✅ Successfully extracted <strong>${escapeHtml(file.name)}</strong> (${lineCount} lines, ${extracted.length} chars). Click <strong>"Analyze &amp; Preview Questions"</strong> below.`;
+    }
+  } catch (err) {
+    console.error("File extraction failed:", err);
+    if (uploadStatusEl) {
+      uploadStatusEl.style.color = "var(--danger)";
+      uploadStatusEl.innerHTML = `❌ ${escapeHtml(err.message || "Failed to extract file.")}`;
+    }
+  }
+}
+if (parseBtn) {
+  parseBtn.addEventListener("click", async () => {
+    const testInfo = getSelectedTestInfo();
+    const rawText = rawQuestionsBox ? rawQuestionsBox.value.trim() : "";
+    if (!testInfo) {
+      alert("Please select a target test container first (Step 1).");
+      return;
+    }
+    if (!rawText) {
+      alert("Please paste question text or upload a document first.");
+      return;
+    }
+    const origBtnText = parseBtn.innerHTML;
+    parseBtn.disabled = true;
+    parseBtn.innerHTML = "⏳ Analyzing &amp; Normalizing...";
+    try {
+      // 1. Fetch existing questions for duplicate detection against target test
+      let existingQuestions = [];
+      try {
+        const snap = await getDocs(collection(db, "subjects", testInfo.id, "questions"));
+        snap.forEach(d => existingQuestions.push({ id: d.id, ...d.data() }));
+      } catch (err) {
+        console.warn("Could not fetch existing questions for duplicate detection:", err);
+      }
+      // 2. Run the Universal Import Pipeline
+      const pipelineResult = runQuestionImportPipeline(rawText, existingQuestions);
+      if (pipelineResult.questions.length === 0) {
+        if (parseReportContainer) {
+          parseReportContainer.style.display = "block";
+          parseReportContainer.innerHTML = `
+            <div style="padding:16px; background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.3); border-radius:8px; color:var(--danger);">
+              <strong>No questions detected.</strong><br/>
+              Please check your input text format. The importer recognizes numbered questions (1., Q1., Question 1), statement questions (Statements I, II...), matching lists, and assertion-reason formats.
+            </div>
+          `;
+        }
+        return;
+      }
+      // 3. Store questions in batch with selection state
+      // Default: select all questions that are not incomplete
+      parsedQuestionsBatch = pipelineResult.questions.map(q => ({
+        ...q,
+        selected: q.status !== "incomplete"
+      }));
+      importerActiveFilter = "all";
+      renderImporterPreviewUI();
+      if (parseReportContainer) {
+        parseReportContainer.style.display = "block";
+        parseReportContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    } catch (err) {
+      console.error("Analysis failed:", err);
+      if (parseReportContainer) {
+        parseReportContainer.style.display = "block";
+        parseReportContainer.innerHTML = `
+          <div style="padding:16px; background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.3); border-radius:8px; color:var(--danger);">
+            <strong>Error analyzing questions:</strong> ${escapeHtml(err.message || String(err))}
+          </div>
+        `;
+      }
+    } finally {
+      parseBtn.disabled = false;
+      parseBtn.innerHTML = origBtnText;
+    }
+  });
+}
+function getVisibleQuestions() {
+  if (importerActiveFilter === "ready") {
+    return parsedQuestionsBatch.map((q, idx) => ({ q, idx })).filter(item => item.q.status === "ready");
+  }
+  if (importerActiveFilter === "review") {
+    return parsedQuestionsBatch.map((q, idx) => ({ q, idx })).filter(item => item.q.status === "review" || item.q.status === "incomplete");
+  }
+  if (importerActiveFilter === "duplicate") {
+    return parsedQuestionsBatch.map((q, idx) => ({ q, idx })).filter(item => item.q.isDuplicate === true);
+  }
+  return parsedQuestionsBatch.map((q, idx) => ({ q, idx }));
+}
+function renderImporterPreviewUI() {
+  if (!parseReportContainer) return;
+  const total = parsedQuestionsBatch.length;
+  const readyCount = parsedQuestionsBatch.filter(q => q.status === "ready").length;
+  const reviewCount = parsedQuestionsBatch.filter(q => q.status === "review" || q.status === "incomplete").length;
+  const dupCount = parsedQuestionsBatch.filter(q => q.isDuplicate).length;
+  const selectedCount = parsedQuestionsBatch.filter(q => q.selected).length;
+  const testInfo = getSelectedTestInfo();
+  // Count by types
+  const typeCounts = {};
+  parsedQuestionsBatch.forEach(q => {
+    typeCounts[q.questionType] = (typeCounts[q.questionType] || 0) + 1;
+  });
+  const typeLabels = {
+    mcq_standard: "Standard MCQ",
+    statement_based: "Statement-based",
+    match_the_following: "Match the Following",
+    assertion_reason: "Assertion–Reason",
+    fill_in_the_blank: "Fill-in-the-blank",
+    true_false: "True / False"
+  };
+  const typePills = Object.entries(typeCounts).map(([type, cnt]) => {
+    const label = typeLabels[type] || type;
+    return `<span class="summary-stat-chip"><strong>${cnt}</strong> ${label}</span>`;
+  }).join("");
+  const visibleItems = getVisibleQuestions();
+  let cardsHtml = "";
+  if (visibleItems.length === 0) {
+    cardsHtml = `
+      <div style="padding: 24px; text-align: center; color: var(--text-muted); background: var(--surface); border: 1px dashed var(--line); border-radius: 8px;">
+        No questions match the current filter ("${importerActiveFilter}").
+      </div>
+    `;
+  } else {
+    cardsHtml = visibleItems.map(({ q, idx }) => {
+      // Options HTML
+      const optRows = (q.options || []).map((opt, optIdx) => {
+        const letter = String.fromCharCode(65 + optIdx);
+        const isChecked = q.correctIndex === optIdx ? "checked" : "";
+        const canRemove = (q.options || []).length > 2;
+        return `
+          <div class="q-option-edit-row">
+            <input type="radio" name="opt_radio_${idx}" class="q-opt-radio" data-gidx="${idx}" data-oidx="${optIdx}" ${isChecked} title="Mark as correct answer" />
+            <span class="q-opt-label">${letter}</span>
+            <input type="text" class="q-opt-input" data-gidx="${idx}" data-oidx="${optIdx}" value="${escapeHtml(opt)}" placeholder="Option text" />
+            ${canRemove ? `<button type="button" class="q-opt-remove-btn" data-gidx="${idx}" data-oidx="${optIdx}" title="Remove this option">✕</button>` : ""}
+          </div>
+        `;
+      }).join("");
+      // Status badge
+      let statusBadgeClass = "status-ready";
+      let statusLabel = "Ready";
+      if (q.status === "incomplete") {
+        statusBadgeClass = "status-incomplete";
+        statusLabel = "Incomplete";
+      } else if (q.status === "review") {
+        statusBadgeClass = "status-review";
+        statusLabel = "Needs Review";
+      }
+      // Warnings
+      let warningsHtml = "";
+      if (q.warnings && q.warnings.length > 0) {
+        warningsHtml = `
+          <div class="q-card-warnings">
+            <span>⚠️</span>
+            <span>${q.warnings.map(w => escapeHtml(w)).join(" • ")}</span>
+          </div>
+        `;
+      }
+      // Type options
+      const typeSelectOptions = [
+        { id: "mcq_standard", label: "Standard MCQ" },
+        { id: "statement_based", label: "Statement-based" },
+        { id: "match_the_following", label: "Match the Following" },
+        { id: "assertion_reason", label: "Assertion–Reason" },
+        { id: "fill_in_the_blank", label: "Fill in the blank" },
+        { id: "true_false", label: "True / False" }
+      ].map(t => `<option value="${t.id}" ${q.questionType === t.id ? "selected" : ""}>${t.label}</option>`).join("");
+      return `
+        <div class="q-preview-card card-${q.status} ${q.isDuplicate ? "card-duplicate" : ""}" id="q-card-${idx}">
+          <div class="q-card-header">
+            <div class="q-card-title-group">
+              <input type="checkbox" class="q-select-chk" data-gidx="${idx}" ${q.selected ? "checked" : ""} title="Include in import" style="width:18px; height:18px; cursor:pointer;" />
+              <strong style="font-size:14px; color:var(--text);">Question ${idx + 1}</strong>
+              <select class="q-type-select" data-gidx="${idx}">
+                ${typeSelectOptions}
+              </select>
+              <span class="q-status-badge ${statusBadgeClass}">${statusLabel}</span>
+              ${q.isDuplicate ? `<span class="q-status-badge" style="background:rgba(139,92,246,0.15); color:#8b5cf6;">Duplicate</span>` : ""}
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button type="button" class="btn btn-ghost btn-sm q-delete-card-btn" data-gidx="${idx}" style="color:var(--danger); padding:4px 8px; font-size:12px;" title="Delete this question">🗑️ Delete</button>
+            </div>
+          </div>
+          ${warningsHtml}
+          <textarea class="q-card-text" data-gidx="${idx}" placeholder="Question stem / text...">${escapeHtml(q.text)}</textarea>
+          <div class="q-options-grid">
+            ${optRows}
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm q-add-opt-btn" data-gidx="${idx}" style="margin-bottom:12px; font-size:12px;">+ Add Option</button>
+          <div class="q-meta-grid">
+            <input type="text" class="q-topic-input" data-gidx="${idx}" placeholder="Topic (optional, e.g. Economy)" value="${escapeHtml(q.topic || "")}" />
+            <textarea class="q-explanation-input" data-gidx="${idx}" placeholder="Explanation (optional)...">${escapeHtml(q.explanation || "")}</textarea>
+          </div>
+          ${q.rawSource ? `
+            <details class="q-source-details">
+              <summary>View Raw Extracted Text</summary>
+              <pre>${escapeHtml(q.rawSource)}</pre>
+            </details>
+          ` : ""}
+        </div>
+      `;
+    }).join("");
+  }
+  // Check if any selected questions are missing answers
+  const hasSelectedWithoutAnswer = parsedQuestionsBatch.some(q => q.selected && (q.correctIndex === null || q.correctIndex === undefined || q.correctIndex < 0 || q.correctIndex >= (q.options || []).length));
+  parseReportContainer.innerHTML = `
+    <div class="importer-summary-bar">
+      <div class="summary-headline">
+        <div>
+          <h3 style="margin:0 0 6px 0; font-size:1.15rem; color:var(--text);">
+            Import Analysis Summary (${total} Questions Detected)
+          </h3>
+          <div class="summary-chips-wrap">
+            ${typePills}
+          </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <span class="summary-stat-chip stat-ready">✅ ${readyCount} Ready</span>
+          <span class="summary-stat-chip stat-review">⚠️ ${reviewCount} Needs Review</span>
+          ${dupCount > 0 ? `<span class="summary-stat-chip stat-duplicate">🔁 ${dupCount} Duplicates</span>` : ""}
+        </div>
+      </div>
+      <div class="importer-toolbar">
+        <div class="importer-filter-pills">
+          <button type="button" class="filter-pill ${importerActiveFilter === "all" ? "active" : ""}" data-filter="all">All (${total})</button>
+          <button type="button" class="filter-pill ${importerActiveFilter === "ready" ? "active" : ""}" data-filter="ready">Ready (${readyCount})</button>
+          <button type="button" class="filter-pill ${importerActiveFilter === "review" ? "active" : ""}" data-filter="review">Needs Review (${reviewCount})</button>
+          ${dupCount > 0 ? `<button type="button" class="filter-pill ${importerActiveFilter === "duplicate" ? "active" : ""}" data-filter="duplicate">Duplicates (${dupCount})</button>` : ""}
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="bulk-select-all-btn">Select All</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="bulk-deselect-all-btn">Deselect All</button>
+          ${dupCount > 0 ? `<button type="button" class="btn btn-secondary btn-sm" id="bulk-exclude-dups-btn">Exclude Duplicates</button>` : ""}
+        </div>
+      </div>
+    </div>
+    <div class="q-cards-list">
+      ${cardsHtml}
+    </div>
+    <!-- Sticky Bottom Bar -->
+    <div class="import-sticky-bar">
+      <div>
+        <div style="font-size:14px; font-weight:600; color:var(--text);">
+          Ready to import: <span style="color:var(--primary); font-size:16px;">${selectedCount}</span> of ${total} questions
+        </div>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+          Target Test: <strong>${escapeHtml(testInfo ? testInfo.name : "None")}</strong>
+        </div>
+        ${hasSelectedWithoutAnswer ? `
+          <div style="margin-top:6px; font-size:12px; color:#d97706; font-weight:600;">
+            ⚠️ Some selected questions do not have an answer key chosen.
+          </div>
+        ` : ""}
+        <div class="import-progress-wrap" id="import-progress-wrap" style="display:none;">
+          <div class="import-progress-bar">
+            <div class="import-progress-fill" id="import-progress-fill"></div>
+          </div>
+          <div id="import-progress-text" style="font-size:12px; color:var(--text-muted); margin-top:4px;">Preparing import...</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button type="button" class="btn btn-secondary" id="sticky-cancel-btn">Cancel &amp; Clear</button>
+        <button type="button" class="btn btn-primary" id="confirm-batch-import-btn" ${selectedCount === 0 || isImportingQuestions ? "disabled" : ""} style="padding:10px 22px; font-size:14px;">
+          📥 Import ${selectedCount} Questions to ${escapeHtml(testInfo ? testInfo.name : "Test")}
+        </button>
+      </div>
+    </div>
+  `;
+  attachImporterCardListeners();
+}
+function attachImporterCardListeners() {
+  if (!parseReportContainer) return;
+  // Filter pills
+  parseReportContainer.querySelectorAll(".filter-pill").forEach(pill => {
+    pill.addEventListener("click", () => {
+      importerActiveFilter = pill.getAttribute("data-filter");
+      renderImporterPreviewUI();
+    });
+  });
+  // Bulk action buttons
+  const bulkSelectBtn = document.getElementById("bulk-select-all-btn");
+  if (bulkSelectBtn) {
+    bulkSelectBtn.addEventListener("click", () => {
+      const visible = getVisibleQuestions();
+      visible.forEach(item => { item.q.selected = true; });
+      renderImporterPreviewUI();
+    });
+  }
+  const bulkDeselectBtn = document.getElementById("bulk-deselect-all-btn");
+  if (bulkDeselectBtn) {
+    bulkDeselectBtn.addEventListener("click", () => {
+      const visible = getVisibleQuestions();
+      visible.forEach(item => { item.q.selected = false; });
+      renderImporterPreviewUI();
+    });
+  }
+  const bulkExcludeDupsBtn = document.getElementById("bulk-exclude-dups-btn");
+  if (bulkExcludeDupsBtn) {
+    bulkExcludeDupsBtn.addEventListener("click", () => {
+      parsedQuestionsBatch.forEach(q => {
+        if (q.isDuplicate) q.selected = false;
+      });
+      renderImporterPreviewUI();
+    });
+  }
+  // Cancel / Clear
+  const cancelBtn = document.getElementById("sticky-cancel-btn");
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", () => {
+      if (confirm("Are you sure you want to discard this imported question batch?")) {
+        parsedQuestionsBatch = [];
+        parseReportContainer.innerHTML = "";
+        parseReportContainer.style.display = "none";
+      }
+    });
+  }
+  // Card interactive modifications (delegated)
+  parseReportContainer.querySelectorAll(".q-select-chk").forEach(chk => {
+    chk.addEventListener("change", (e) => {
+      const idx = parseInt(e.target.getAttribute("data-gidx"), 10);
+      if (parsedQuestionsBatch[idx]) {
+        parsedQuestionsBatch[idx].selected = e.target.checked;
+        updateStickyBarSelectedCount();
+      }
+    });
+  });
+  parseReportContainer.querySelectorAll(".q-type-select").forEach(sel => {
+    sel.addEventListener("change", (e) => {
+      const idx = parseInt(e.target.getAttribute("data-gidx"), 10);
+      if (parsedQuestionsBatch[idx]) {
+        parsedQuestionsBatch[idx].questionType = e.target.value;
+      }
+    });
+  });
+  parseReportContainer.querySelectorAll(".q-card-text").forEach(txt => {
+    txt.addEventListener("input", (e) => {
+      const idx = parseInt(e.target.getAttribute("data-gidx"), 10);
+      if (parsedQuestionsBatch[idx]) {
+        parsedQuestionsBatch[idx].text = e.target.value;
+      }
+    });
+  });
+  parseReportContainer.querySelectorAll(".q-opt-input").forEach(optInp => {
+    optInp.addEventListener("input", (e) => {
+      const gidx = parseInt(e.target.getAttribute("data-gidx"), 10);
+      const oidx = parseInt(e.target.getAttribute("data-oidx"), 10);
+      if (parsedQuestionsBatch[gidx] && parsedQuestionsBatch[gidx].options) {
+        parsedQuestionsBatch[gidx].options[oidx] = e.target.value;
+      }
+    });
+  });
+  parseReportContainer.querySelectorAll(".q-opt-radio").forEach(radio => {
+    radio.addEventListener("change", (e) => {
+      const gidx = parseInt(e.target.getAttribute("data-gidx"), 10);
+      const oidx = parseInt(e.target.getAttribute("data-oidx"), 10);
+      const q = parsedQuestionsBatch[gidx];
+      if (q) {
+        q.correctIndex = oidx;
+        // Check if question is now ready
+        if (q.text.trim() && (q.options || []).length >= 2) {
+          q.status = "ready";
+          q.warnings = (q.warnings || []).filter(w => !w.toLowerCase().includes("no correct answer") && !w.toLowerCase().includes("answer key"));
+        }
+        renderImporterPreviewUI();
+      }
+    });
+  });
+  parseReportContainer.querySelectorAll(".q-opt-remove-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const gidx = parseInt(e.target.getAttribute("data-gidx"), 10);
+      const oidx = parseInt(e.target.getAttribute("data-oidx"), 10);
+      const q = parsedQuestionsBatch[gidx];
+      if (q && q.options && q.options.length > 2) {
+        q.options.splice(oidx, 1);
+        if (q.correctIndex === oidx) {
+          q.correctIndex = null;
+          q.status = "review";
+        } else if (q.correctIndex > oidx) {
+          q.correctIndex -= 1;
+        }
+        renderImporterPreviewUI();
+      }
+    });
+  });
+  parseReportContainer.querySelectorAll(".q-add-opt-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const gidx = parseInt(e.target.getAttribute("data-gidx"), 10);
+      const q = parsedQuestionsBatch[gidx];
+      if (q) {
+        if (!q.options) q.options = [];
+        const nextLetter = String.fromCharCode(65 + q.options.length);
+        q.options.push(`New option ${nextLetter}`);
+        renderImporterPreviewUI();
+      }
+    });
+  });
+  parseReportContainer.querySelectorAll(".q-topic-input").forEach(inp => {
+    inp.addEventListener("input", (e) => {
+      const gidx = parseInt(e.target.getAttribute("data-gidx"), 10);
+      if (parsedQuestionsBatch[gidx]) {
+        parsedQuestionsBatch[gidx].topic = e.target.value;
+      }
+    });
+  });
+  parseReportContainer.querySelectorAll(".q-explanation-input").forEach(inp => {
+    inp.addEventListener("input", (e) => {
+      const gidx = parseInt(e.target.getAttribute("data-gidx"), 10);
+      if (parsedQuestionsBatch[gidx]) {
+        parsedQuestionsBatch[gidx].explanation = e.target.value;
+      }
+    });
+  });
+  parseReportContainer.querySelectorAll(".q-delete-card-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const gidx = parseInt(e.target.getAttribute("data-gidx"), 10);
+      if (confirm(`Delete Question ${gidx + 1}?`)) {
+        parsedQuestionsBatch.splice(gidx, 1);
+        renderImporterPreviewUI();
+      }
+    });
+  });
+  // Confirm Batch Import button
+  const confirmBatchBtn = document.getElementById("confirm-batch-import-btn");
+  if (confirmBatchBtn) {
+    confirmBatchBtn.addEventListener("click", handleConfirmBatchImport);
+  }
+}
+function updateStickyBarSelectedCount() {
+  const selectedCount = parsedQuestionsBatch.filter(q => q.selected).length;
+  const total = parsedQuestionsBatch.length;
+  const testInfo = getSelectedTestInfo();
+  const confirmBtn = document.getElementById("confirm-batch-import-btn");
+  if (confirmBtn) {
+    confirmBtn.disabled = selectedCount === 0 || isImportingQuestions;
+    confirmBtn.innerHTML = `📥 Import ${selectedCount} Questions to ${escapeHtml(testInfo ? testInfo.name : "Test")}`;
+  }
+}
+async function handleConfirmBatchImport() {
+  const testInfo = getSelectedTestInfo();
+  if (!testInfo) {
+    alert("Please select a target test container first.");
+    return;
+  }
+  const selectedQuestions = parsedQuestionsBatch.filter(q => q.selected);
+  if (selectedQuestions.length === 0) {
+    alert("Please select at least one question to import.");
+    return;
+  }
+  // Validate missing answers
+  const missingAns = selectedQuestions.filter(q => q.correctIndex === null || q.correctIndex === undefined || q.correctIndex < 0 || q.correctIndex >= (q.options || []).length);
+  if (missingAns.length > 0) {
+    const proceed = confirm(
+      `Warning: ${missingAns.length} of the ${selectedQuestions.length} selected questions do not have a correct answer marked.\n\n` +
+      `Questions without answers cannot be evaluated in tests.\n\n` +
+      `Click OK to proceed anyway, or Cancel to review and select answers.`
+    );
+    if (!proceed) {
+      importerActiveFilter = "review";
+      renderImporterPreviewUI();
+      return;
+    }
+  }
+  isImportingQuestions = true;
+  const confirmBtn = document.getElementById("confirm-batch-import-btn");
+  const progressWrap = document.getElementById("import-progress-wrap");
+  const progressFill = document.getElementById("import-progress-fill");
+  const progressText = document.getElementById("import-progress-text");
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = "Importing in batches...";
+  }
+  if (progressWrap) progressWrap.style.display = "block";
+  try {
+    const BATCH_SIZE = 450; // Firestore limit is 500 per batch
+    const total = selectedQuestions.length;
+    let imported = 0;
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const chunk = selectedQuestions.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const q of chunk) {
+        const qRef = doc(collection(db, "subjects", testInfo.id, "questions"));
+        const docData = {
+          text: q.text.trim(),
+          options: (q.options || []).map(o => o.trim()),
+          correctIndex: q.correctIndex != null ? q.correctIndex : 0,
+          questionType: q.questionType || "mcq_standard",
+          createdAt: serverTimestamp()
+        };
+        if (q.structured) docData.structured = q.structured;
+        if (q.topic && q.topic.trim()) docData.topic = q.topic.trim();
+        if (q.explanation && q.explanation.trim()) docData.explanation = q.explanation.trim();
+        batch.set(qRef, docData);
+      }
+      await batch.commit();
+      imported += chunk.length;
+      const pct = Math.round((imported / total) * 100);
+      if (progressFill) progressFill.style.width = pct + "%";
+      if (progressText) progressText.textContent = `Imported ${imported} of ${total} questions (${pct}%)...`;
+    }
+    // Success banner
+    if (parseReportContainer) {
+      parseReportContainer.innerHTML = `
+        <div style="padding: 24px; background: rgba(16, 185, 129, 0.12); border: 1.5px solid var(--success); border-radius: 8px; text-align: center;">
+          <div style="font-size: 36px; margin-bottom: 8px;">🎉</div>
+          <h3 style="color: var(--success); margin: 0 0 8px 0; font-size: 1.3rem;">Import Successful!</h3>
+          <p style="margin: 0 0 16px 0; color: var(--text); font-size: 15px;">
+            Successfully imported <strong>${imported} questions</strong> to <strong>${escapeHtml(testInfo.name)}</strong>.
+          </p>
+          <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary" id="view-imported-test-btn">📝 View / Edit Test Questions</button>
+            <button type="button" class="btn btn-secondary" id="import-more-btn">+ Import More Questions</button>
+          </div>
+        </div>
+      `;
+      document.getElementById("view-imported-test-btn")?.addEventListener("click", () => {
+        openEditModal(testInfo.id);
+      });
+      document.getElementById("import-more-btn")?.addEventListener("click", () => {
+        parseReportContainer.innerHTML = "";
+        parseReportContainer.style.display = "none";
+      });
+    }
+    if (rawQuestionsBox) rawQuestionsBox.value = "";
+    if (uploadStatusEl) {
+      uploadStatusEl.textContent = "";
+      uploadStatusEl.style.display = "none";
+    }
+    if (resetImportBtn) resetImportBtn.style.display = "none";
+    parsedQuestionsBatch = [];
+    // Reload tests to update question counters
     await loadSubjects();
   } catch (err) {
-    reportEl.innerHTML += `<div class="auth-error" style="margin-top:10px; color: var(--danger);">Upload failed. Please try again.</div>`;
+    console.error("Batch import failed:", err);
+    alert("Batch import failed: " + err.message);
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = `Import ${selectedQuestions.length} Questions to ${escapeHtml(testInfo.name)}`;
+    }
   } finally {
-    confirmBtn.disabled = false;
-    parseBtn.disabled = false;
+    isImportingQuestions = false;
   }
-});
-
+}
 document.getElementById("back-to-dashboard").addEventListener("click", () => {
   navigateTo("/dashboard");
 });
-
 // ============================================================
 // QUESTION DISPLAY FORMATTER (Statements & Match-the-following)
 // ============================================================
 const ROMAN_NUMS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
 const ROMAN_LOWER = ROMAN_NUMS.map(r => r.toLowerCase());
-
 const CONCLUSION_PATTERNS = [
   /(?:Which\s+(?:of\s+the|of\s+these|among\s+the)?\s+(?:statements?\s+given\s+above|above\s+statements?|statements?|pairs?\s+given\s+above|above\s+pairs?|following(?:\s+statements?|\s+pairs?)?)\s+(?:is\/are|are|is)\s+(?:correct|not\s+correct|incorrect|true|false|correctly\s+matched|not\s+correctly\s+matched)[^?]*\??)/i,
   /(?:Select\s+the\s+correct\s+(?:answer|code|option|statement|statements)\s+(?:using|from)\s+(?:the\s+)?(?:codes?|options?)\s+given\s+below[^:]*:?)/i,
@@ -2138,7 +2315,6 @@ const CONCLUSION_PATTERNS = [
   /(?:Which\s+of\s+the\s+following\s+is(?:\s+the)?\s+correct\s+(?:matching|combination|code)\??)/i,
   /(?:Which\s+of\s+the\s+following\s+(?:is\/are|are|is)\s+(?:correct|not\s+correct|incorrect|true|false)\??)/i
 ];
-
 function extractConclusion(text) {
   for (const pat of CONCLUSION_PATTERNS) {
     const fullPat = new RegExp("(" + pat.source + ")\\s*$", "i");
@@ -2157,98 +2333,211 @@ function extractConclusion(text) {
   }
   return { mainText: text, conclusion: "" };
 }
-
 function parseMatchTheFollowing(rawText) {
   const text = (rawText || "").trim();
   if (!/\b(?:match|list|column)\b/i.test(text)) return null;
 
-  const { mainText, conclusion: extractedConc } = extractConclusion(text);
-  let conclusion = extractedConc;
-
-  const introMatch = mainText.match(/^(.*?match\s+(?:list[- ]?(?:I|1|A)\s+with\s+list[- ]?(?:II|2|B)|the\s+following|column[- ]?(?:I|1|A)\s+with\s+column[- ]?(?:II|2|B))[:.]?)\s*/i);
-  let introText = "";
-  let remainder = mainText;
-  if (introMatch) {
-    introText = introMatch[1].trim();
-    remainder = mainText.slice(introMatch[0].length);
-  }
-
-  let h1Match = remainder.match(/\b((?:List|Column)\s*[-–]?\s*(?:I|1|A))\b[:.]?/i);
-  if (!h1Match) {
-    h1Match = mainText.match(/\b((?:List|Column)\s*[-–]?\s*(?:I|1|A))\b[:.]?/i);
-    if (!h1Match) return null;
-    introText = mainText.slice(0, h1Match.index).trim();
-    remainder = mainText.slice(h1Match.index);
-    h1Match = remainder.match(/\b((?:List|Column)\s*[-–]?\s*(?:I|1|A))\b[:.]?/i);
-  }
-
-  const heading1 = h1Match[1].trim();
-  const afterH1 = remainder.slice(h1Match.index + h1Match[0].length);
-
-  const h2Match = afterH1.match(/\b((?:List|Column)\s*[-–]?\s*(?:II|2|B))\b[:.]?/i);
-  if (!h2Match) return null;
-
-  const heading2 = h2Match[1].trim();
-  let block1 = afterH1.slice(0, h2Match.index).trim();
-  let block2 = afterH1.slice(h2Match.index + h2Match[0].length).trim();
-
-  if (!conclusion) {
-    const b2Res = extractConclusion(block2);
-    if (b2Res.conclusion) {
-      block2 = b2Res.mainText;
-      conclusion = b2Res.conclusion;
+  // 1. Tab-delimited table check (from table copy-paste)
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  let tabHdrIdx = -1;
+  for (let idx = 0; idx < lines.length; idx++) {
+    const l = lines[idx];
+    if (l.includes("\t") && /\b(?:List|Column|Group)\s*[-–]?(?:I|1|A)\b/i.test(l)) {
+      tabHdrIdx = idx;
+      break;
     }
   }
-
-  function extractItems(block) {
-    const itemRegex = /(?:^|\s)(?:\(([A-Za-z0-9]+)\)|([A-Za-z0-9]+)[.)])\s+/g;
-    const matches = [];
-    let match;
-    while ((match = itemRegex.exec(block)) !== null) {
-      matches.push({ index: match.index, end: itemRegex.lastIndex, raw: match[0] });
-    }
-    if (matches.length >= 2) {
-      const items = [];
-      for (let i = 0; i < matches.length; i++) {
-        const label = matches[i].raw.trim();
-        const start = matches[i].end;
-        const end = i + 1 < matches.length ? matches[i + 1].index : block.length;
-        const val = block.slice(start, end).trim();
-        items.push({ label, text: val });
+  if (tabHdrIdx !== -1) {
+    const introText = lines.slice(0, tabHdrIdx).join(" ").trim();
+    const hdrs = lines[tabHdrIdx].split("\t").map(h => h.trim()).filter(Boolean);
+    if (hdrs.length >= 2) {
+      const h1 = hdrs[0];
+      const h2 = hdrs[1];
+      const tItems1 = [];
+      const tItems2 = [];
+      let conclusion = "Codes:";
+      for (let i = tabHdrIdx + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.includes("\t")) {
+          const parts = line.split("\t").map(p => p.trim());
+          const col1 = parts[0] || "";
+          const col2 = parts[1] || "";
+          const m1 = col1.match(/^(?:([a-zA-Z0-9]+)[\.\)\:\-]|(?:\(([a-zA-Z0-9]+)\)))\s*(.*)/);
+          tItems1.push({ label: m1 ? (m1[1] || m1[2]) : "", text: m1 ? m1[3].trim() : col1 });
+          const m2 = col2.match(/^(?:([a-zA-Z0-9]+)[\.\)\:\-]|(?:\(([a-zA-Z0-9]+)\)))\s*(.*)/);
+          tItems2.push({ label: m2 ? (m2[1] || m2[2]) : "", text: m2 ? m2[3].trim() : col2 });
+        } else if (/(?:Codes?|Choose\s+the|Select\s+the|Which\s+of)/i.test(line)) {
+          conclusion = line.trim();
+        }
       }
-      return items;
+      if (tItems1.length >= 2 && tItems2.length >= 2) {
+        return {
+          type: "match",
+          intro: introText || "Match List I with List II:",
+          heading1: h1,
+          heading2: h2,
+          items1: tItems1,
+          items2: tItems2,
+          sections: [
+            { heading: h1, items: tItems1 },
+            { heading: h2, items: tItems2 }
+          ],
+          conclusion: conclusion || "Codes:"
+        };
+      }
     }
-    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
-    if (lines.length >= 2) {
-      return lines.map(l => ({ label: "", text: l }));
+  }
+
+  // 2. Extract leading intro sentence: e.g. "Match List I (...) with List II (...):"
+  const introMatch = text.match(/^(?:.*?\bmatch\s+(?:list|column|the\s+following|the\s+pairs)[^\n:]*[:.]?)\s*/i);
+  let introText = "";
+  let remainder = text;
+  if (introMatch) {
+    introText = introMatch[0].trim();
+    remainder = text.slice(introMatch[0].length).trim();
+  }
+
+  // 3. Search for List I header
+  const l1Regex = /(?:^|\n|\b)((?:List|Column|Group|Set)\s*[-–]?\s*(?:I|1|A)(?:\s*\([^\)]+\))?)\s*[:.-]?/i;
+  let l1M = remainder.match(l1Regex);
+  if (!l1M) {
+    l1M = text.match(l1Regex);
+    remainder = text;
+    if (l1M) {
+      introText = text.slice(0, l1M.index).trim();
+      remainder = text.slice(l1M.index);
+      l1M = remainder.match(l1Regex);
     }
-    return [];
+  }
+  if (!l1M) return null;
+
+  let h1Raw = l1M[1].trim();
+  const afterL1 = remainder.slice(l1M.index + l1M[0].length).trim();
+
+  // 4. Search for List II header
+  const l2Regex = /(?:^|\n|\b)((?:List|Column|Group|Set)\s*[-–]?\s*(?:II|2|B)(?:\s*\([^\)]+\))?)\s*[:.-]?/i;
+  const l2M = afterL1.match(l2Regex);
+  if (!l2M) return null;
+
+  let h2Raw = l2M[1].trim();
+  const block1 = afterL1.slice(0, l2M.index).trim();
+  const afterL2 = afterL1.slice(l2M.index + l2M[0].length).trim();
+
+  // 5. Search for conclusion / codes prompt at end of afterL2
+  const concRegex = /((?:Codes?|Choose\s+the|Select\s+the|Which\s+of)[\s\S]*?[:.]?)\s*$/i;
+  const concM = afterL2.match(concRegex);
+  let block2 = afterL2;
+  let conclusion = "Codes:";
+  if (concM) {
+    conclusion = concM[1].trim();
+    block2 = afterL2.slice(0, concM.index).trim();
+  }
+
+  // 6. Extract items from block1 and block2
+  function extractItems(block) {
+    const numMatches = [];
+    const alphaMatches = [];
+    const romanMatches = [];
+    const numRe = /(?:^|\s)(?:(\d{1,2})[\.\)\:\-]|(?:\((\d{1,2})\)))\s+/g;
+    const alphaRe = /(?:^|\s)(?:([a-zA-Z])[\.\)\:\-]|(?:\(([a-zA-Z])\)))\s+/g;
+    const romanRe = /(?:^|\s)(?:(i|ii|iii|iv|v|vi|vii|viii|ix|x)[\.\)\:\-]|(?:\((i|ii|iii|iv|v|vi|vii|viii|ix|x)\)))\s+/gi;
+
+    let m;
+    while ((m = numRe.exec(block)) !== null) numMatches.push({ index: m.index, end: numRe.lastIndex, val: m[1] || m[2] });
+    while ((m = alphaRe.exec(block)) !== null) alphaMatches.push({ index: m.index, end: alphaRe.lastIndex, val: m[1] || m[2] });
+    while ((m = romanRe.exec(block)) !== null) romanMatches.push({ index: m.index, end: romanRe.lastIndex, val: m[1] || m[2] });
+
+    function filterSeq(matches, mode) {
+      if (matches.length < 2) return [];
+      const res = [];
+      let exp = 1;
+      const romanList = ["i","ii","iii","iv","v","vi","vii","viii","ix","x"];
+      for (const item of matches) {
+        if (mode === "num") {
+          const n = parseInt(item.val, 10);
+          if (n === exp) { res.push(item); exp++; }
+        } else if (mode === "alpha") {
+          const c = item.val.toUpperCase();
+          if (c === String.fromCharCode(65 + (exp - 1))) { res.push(item); exp++; }
+        } else if (mode === "roman") {
+          if (exp - 1 < romanList.length && item.val.toLowerCase() === romanList[exp - 1]) { res.push(item); exp++; }
+        }
+      }
+      return res;
+    }
+
+    const validNums = filterSeq(numMatches, "num");
+    const validAlphas = filterSeq(alphaMatches, "alpha");
+    const validRomans = filterSeq(romanMatches, "roman");
+
+    let chosen = [];
+    if (validNums.length >= 2 && validNums.length >= validAlphas.length && validNums.length >= validRomans.length) {
+      chosen = validNums;
+    } else if (validAlphas.length >= 2 && validAlphas.length >= validRomans.length) {
+      chosen = validAlphas;
+    } else if (validRomans.length >= 2) {
+      chosen = validRomans;
+    } else {
+      const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+      if (lines.length >= 2) {
+        return lines.map((line, idx) => {
+          const lm = line.match(/^(?:([a-zA-Z0-9]+)[\.\)\:\-]|(?:\(([a-zA-Z0-9]+)\)))\s*(.*)/);
+          return {
+            label: lm ? (lm[1] || lm[2]) : String(idx + 1),
+            text: lm ? lm[3].trim() : line
+          };
+        });
+      }
+      return [];
+    }
+
+    const items = [];
+    for (let i = 0; i < chosen.length; i++) {
+      const cur = chosen[i];
+      const start = cur.end;
+      const end = (i + 1 < chosen.length) ? chosen[i + 1].index : block.length;
+      items.push({
+        label: cur.val,
+        text: block.slice(start, end).trim()
+      });
+    }
+    return items;
   }
 
   const items1 = extractItems(block1);
   const items2 = extractItems(block2);
-
   if (items1.length < 2 || items2.length < 2) return null;
+
+  // Enrich headers with parenthetical descriptions if present in intro sentence
+  if (!h1Raw.includes("(")) {
+    const m1 = introText.match(/List\s*[-–]?\s*(?:I|1|A)\s*\(([^\)]+)\)/i);
+    if (m1) h1Raw = `${h1Raw} (${m1[1].trim()})`;
+  }
+  if (!h2Raw.includes("(")) {
+    const m2 = introText.match(/List\s*[-–]?\s*(?:II|2|B)\s*\(([^\)]+)\)/i);
+    if (m2) h2Raw = `${h2Raw} (${m2[1].trim()})`;
+  }
 
   return {
     type: "match",
     intro: introText || "Match List I with List II:",
+    heading1: h1Raw,
+    heading2: h2Raw,
+    items1,
+    items2,
     sections: [
-      { heading: heading1, items: items1 },
-      { heading: heading2, items: items2 }
+      { heading: h1Raw, items: items1 },
+      { heading: h2Raw, items: items2 }
     ],
-    conclusion
+    conclusion: conclusion || "Codes:"
   };
 }
-
 function parseStatements(rawText) {
   const text = (rawText || "").trim();
   const { mainText, conclusion } = extractConclusion(text);
-
   const hasStatementContext =
     /\b(?:statements?|consider|following|regarding|with\s+reference\s+to|select\s+the|read\s+the)\b/i.test(mainText) ||
     Boolean(conclusion);
-
   function testRomanSequence(isUpper, withParens) {
     const tokens = isUpper ? ROMAN_NUMS : ROMAN_LOWER;
     let patStr;
@@ -2264,7 +2553,6 @@ function parseStatements(rawText) {
       matches.push({ index: m.index, end: regex.lastIndex, val: m[1], raw: m[0] });
     }
     if (matches.length < 2) return null;
-
     const seqMatches = [];
     let expectedIdx = 0;
     for (const matchItem of matches) {
@@ -2278,7 +2566,6 @@ function parseStatements(rawText) {
         expectedIdx = 1;
       }
     }
-
     if (seqMatches.length >= 2) {
       const intro = mainText.slice(0, seqMatches[0].index).trim();
       const statements = [];
@@ -2298,7 +2585,6 @@ function parseStatements(rawText) {
     }
     return null;
   }
-
   let res = testRomanSequence(true, false);
   if (res) return res;
   res = testRomanSequence(true, true);
@@ -2307,7 +2593,6 @@ function parseStatements(rawText) {
   if (res) return res;
   res = testRomanSequence(false, false);
   if (res) return res;
-
   if (hasStatementContext) {
     function testArabicSequence(withParens) {
       const patStr = withParens ? "(?:^|\\s)\\((\\d{1,2})\\)\\s*" : "(?:^|\\s)(\\d{1,2})[.)]\\s*";
@@ -2318,7 +2603,6 @@ function parseStatements(rawText) {
         matches.push({ index: m.index, end: regex.lastIndex, num: parseInt(m[1], 10), raw: m[0] });
       }
       if (matches.length < 2) return null;
-
       let validMatches = matches;
       if (!withParens && matches[0].index === 0) {
         const afterFirst = mainText.slice(matches[0].end);
@@ -2327,7 +2611,6 @@ function parseStatements(rawText) {
         }
       }
       if (validMatches.length < 2) return null;
-
       const seqMatches = [];
       let expectedNum = 1;
       for (const item of validMatches) {
@@ -2340,7 +2623,6 @@ function parseStatements(rawText) {
           expectedNum = 2;
         }
       }
-
       if (seqMatches.length >= 2) {
         const intro = mainText.slice(0, seqMatches[0].index).trim();
         const statements = [];
@@ -2360,130 +2642,248 @@ function parseStatements(rawText) {
       }
       return null;
     }
-
     res = testArabicSequence(false);
     if (res) return res;
     res = testArabicSequence(true);
     if (res) return res;
   }
-
   return null;
 }
-
+function parseAssertionReason(text) {
+  if (!text || typeof text !== "string") return null;
+  const match = text.match(/(?:Assertion\s*(?:\([Aa]\)|[Aa])\s*[:\-–—]\s*([\s\S]+?))\n+(?:Reason\s*(?:\([Rr]\)|[Rr])\s*[:\-–—]\s*([\s\S]+?))(?:\n+((?:In\s+light\s+of|Choose\s+the|Which\s+of)[\s\S]*))?$/i);
+  if (match) {
+    const fullMatchIndex = text.search(/Assertion\s*(?:\([Aa]\)|[Aa])\s*[:\-–—]/i);
+    const intro = text.substring(0, fullMatchIndex).trim();
+    const assertion = match[1].trim();
+    const reason = match[2].trim();
+    const conclusion = match[3] ? match[3].trim() : "";
+    return {
+      type: "assertion_reason",
+      intro,
+      assertion,
+      reason,
+      conclusion
+    };
+  }
+  return null;
+}
 function parseQuestionStructure(text) {
   if (!text || typeof text !== "string") {
     return { type: "plain", text: "" };
   }
+  const arRes = parseAssertionReason(text);
+  if (arRes) return arRes;
   const matchRes = parseMatchTheFollowing(text);
   if (matchRes) return matchRes;
-
   const stmtRes = parseStatements(text);
   if (stmtRes) return stmtRes;
-
   return { type: "plain", text };
 }
+function renderMatchTableQuestion(container, parsed) {
+  const wrap = document.createElement("div");
+  wrap.className = "q-formatted-match";
 
-function renderFormattedQuestion(container, rawText) {
+  // 1. Intro statement at top
+  if (parsed.intro) {
+    const introEl = document.createElement("div");
+    introEl.className = "q-match-intro";
+    introEl.textContent = parsed.intro;
+    wrap.appendChild(introEl);
+  }
+
+  // 2. Tabular Comparison Table
+  const heading1 = parsed.heading1 || (parsed.sections && parsed.sections[0] ? parsed.sections[0].heading : "LIST I");
+  const heading2 = parsed.heading2 || (parsed.sections && parsed.sections[1] ? parsed.sections[1].heading : "LIST II");
+  const items1 = parsed.items1 || (parsed.sections && parsed.sections[0] ? parsed.sections[0].items : (parsed.listA || []));
+  const items2 = parsed.items2 || (parsed.sections && parsed.sections[1] ? parsed.sections[1].items : (parsed.listB || []));
+
+  const tableWrap = document.createElement("div");
+  tableWrap.className = "q-match-table-wrap";
+
+  const table = document.createElement("table");
+  table.className = "q-match-table";
+
+  const thead = document.createElement("thead");
+  const trHead = document.createElement("tr");
+
+  const th1 = document.createElement("th");
+  th1.className = "q-match-th q-match-th-left";
+  th1.textContent = heading1.toUpperCase();
+
+  const th2 = document.createElement("th");
+  th2.className = "q-match-th q-match-th-right";
+  th2.textContent = heading2.toUpperCase();
+
+  trHead.appendChild(th1);
+  trHead.appendChild(th2);
+  thead.appendChild(trHead);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  const maxRows = Math.max(items1.length, items2.length);
+
+  for (let r = 0; r < maxRows; r++) {
+    const tr = document.createElement("tr");
+    tr.className = "q-match-row";
+
+    // Left Cell
+    const td1 = document.createElement("td");
+    td1.className = "q-match-td q-match-td-left";
+    if (r < items1.length) {
+      const it = items1[r];
+      let lbl = (it.label || "").trim();
+      if (lbl && !lbl.endsWith(".") && !lbl.endsWith(")") && !lbl.endsWith(":")) {
+        lbl = /^[a-zA-Z]$/.test(lbl) ? `${lbl})` : `${lbl}.`;
+      }
+      if (lbl) {
+        const sLbl = document.createElement("span");
+        sLbl.className = "q-match-item-lbl";
+        sLbl.textContent = lbl;
+        td1.appendChild(sLbl);
+      }
+      const sTxt = document.createElement("span");
+      sTxt.className = "q-match-item-txt";
+      sTxt.textContent = it.text || "";
+      td1.appendChild(sTxt);
+    }
+
+    // Right Cell
+    const td2 = document.createElement("td");
+    td2.className = "q-match-td q-match-td-right";
+    if (r < items2.length) {
+      const it = items2[r];
+      let lbl = (it.label || "").trim();
+      if (lbl && !lbl.endsWith(".") && !lbl.endsWith(")") && !lbl.endsWith(":")) {
+        lbl = /^[a-zA-Z]$/.test(lbl) ? `${lbl})` : `${lbl}.`;
+      }
+      if (lbl) {
+        const sLbl = document.createElement("span");
+        sLbl.className = "q-match-item-lbl";
+        sLbl.textContent = lbl;
+        td2.appendChild(sLbl);
+      }
+      const sTxt = document.createElement("span");
+      sTxt.className = "q-match-item-txt";
+      sTxt.textContent = it.text || "";
+      td2.appendChild(sTxt);
+    }
+
+    tr.appendChild(td1);
+    tr.appendChild(td2);
+    tbody.appendChild(tr);
+  }
+
+  table.appendChild(tbody);
+  tableWrap.appendChild(table);
+  wrap.appendChild(tableWrap);
+
+  // 3. Conclusion / Codes label below
+  const concText = parsed.conclusion || "Codes:";
+  const concEl = document.createElement("div");
+  concEl.className = "q-match-conclusion";
+  concEl.textContent = concText;
+  wrap.appendChild(concEl);
+
+  const subPrompt = document.createElement("div");
+  subPrompt.className = "q-match-subprompt";
+  subPrompt.textContent = "Select the correct option below:";
+  wrap.appendChild(subPrompt);
+
+  container.appendChild(wrap);
+}
+
+function renderFormattedQuestion(container, rawText, structuredData) {
   if (!container) return;
   container.innerHTML = "";
 
-  const parsed = parseQuestionStructure(rawText);
+  // If pre-parsed structured data is available
+  if (structuredData && (structuredData.listA || structuredData.items1)) {
+    renderMatchTableQuestion(container, {
+      type: "match",
+      intro: structuredData.intro,
+      heading1: structuredData.heading1 || "LIST I",
+      heading2: structuredData.heading2 || "LIST II",
+      items1: structuredData.items1 || structuredData.listA,
+      items2: structuredData.items2 || structuredData.listB,
+      conclusion: structuredData.conclusion || "Codes:"
+    });
+    return;
+  }
 
-  if (parsed.type === "statement") {
+  const parsed = parseQuestionStructure(rawText);
+  if (parsed.type === "assertion_reason") {
+    const wrap = document.createElement("div");
+    wrap.className = "q-formatted-assertion";
+    if (parsed.intro) {
+      const introEl = document.createElement("div");
+      introEl.className = "q-assertion-intro";
+      introEl.textContent = parsed.intro;
+      wrap.appendChild(introEl);
+    }
+    const aCard = document.createElement("div");
+    aCard.className = "q-assertion-card";
+    const aBadge = document.createElement("span");
+    aBadge.className = "q-assertion-badge";
+    aBadge.textContent = "Assertion (A):";
+    const aText = document.createElement("span");
+    aText.className = "q-assertion-text";
+    aText.textContent = parsed.assertion;
+    aCard.appendChild(aBadge);
+    aCard.appendChild(aText);
+    wrap.appendChild(aCard);
+    const rCard = document.createElement("div");
+    rCard.className = "q-reason-card";
+    const rBadge = document.createElement("span");
+    rBadge.className = "q-reason-badge";
+    rBadge.textContent = "Reason (R):";
+    const rText = document.createElement("span");
+    rText.className = "q-reason-text";
+    rText.textContent = parsed.reason;
+    rCard.appendChild(rBadge);
+    rCard.appendChild(rText);
+    wrap.appendChild(rCard);
+    if (parsed.conclusion) {
+      const concEl = document.createElement("div");
+      concEl.className = "q-assertion-conclusion";
+      concEl.textContent = parsed.conclusion;
+      wrap.appendChild(concEl);
+    }
+    container.appendChild(wrap);
+  } else if (parsed.type === "statement") {
     const wrap = document.createElement("div");
     wrap.className = "q-formatted-statement";
-
     if (parsed.intro) {
       const introEl = document.createElement("div");
       introEl.className = "q-statement-intro";
       introEl.textContent = parsed.intro;
       wrap.appendChild(introEl);
     }
-
     const listEl = document.createElement("div");
     listEl.className = "q-statement-list";
     parsed.statements.forEach(st => {
       const itemEl = document.createElement("div");
       itemEl.className = "q-statement-item";
-
       const numEl = document.createElement("span");
       numEl.className = "q-statement-num";
       numEl.textContent = st.label;
-
       const textEl = document.createElement("span");
       textEl.className = "q-statement-text";
       textEl.textContent = st.text;
-
       itemEl.appendChild(numEl);
       itemEl.appendChild(textEl);
       listEl.appendChild(itemEl);
     });
     wrap.appendChild(listEl);
-
     if (parsed.conclusion) {
       const concEl = document.createElement("div");
       concEl.className = "q-statement-conclusion";
       concEl.textContent = parsed.conclusion;
       wrap.appendChild(concEl);
     }
-
     container.appendChild(wrap);
   } else if (parsed.type === "match") {
-    const wrap = document.createElement("div");
-    wrap.className = "q-formatted-match";
-
-    if (parsed.intro) {
-      const introEl = document.createElement("div");
-      introEl.className = "q-match-intro";
-      introEl.textContent = parsed.intro;
-      wrap.appendChild(introEl);
-    }
-
-    const listsEl = document.createElement("div");
-    listsEl.className = "q-match-lists";
-
-    parsed.sections.forEach(sec => {
-      const colEl = document.createElement("div");
-      colEl.className = "q-match-column";
-
-      const headingEl = document.createElement("div");
-      headingEl.className = "q-match-heading";
-      headingEl.textContent = sec.heading;
-      colEl.appendChild(headingEl);
-
-      const itemsEl = document.createElement("div");
-      itemsEl.className = "q-match-items";
-      sec.items.forEach(it => {
-        const itemEl = document.createElement("div");
-        itemEl.className = "q-match-item";
-
-        if (it.label) {
-          const lblEl = document.createElement("span");
-          lblEl.className = "q-match-label";
-          lblEl.textContent = it.label;
-          itemEl.appendChild(lblEl);
-        }
-
-        const textEl = document.createElement("span");
-        textEl.className = "q-match-text";
-        textEl.textContent = it.text;
-        itemEl.appendChild(textEl);
-
-        itemsEl.appendChild(itemEl);
-      });
-      colEl.appendChild(itemsEl);
-      listsEl.appendChild(colEl);
-    });
-    wrap.appendChild(listsEl);
-
-    if (parsed.conclusion) {
-      const concEl = document.createElement("div");
-      concEl.className = "q-match-conclusion";
-      concEl.textContent = parsed.conclusion;
-      wrap.appendChild(concEl);
-    }
-
-    container.appendChild(wrap);
+    renderMatchTableQuestion(container, parsed);
   } else {
     const wrap = document.createElement("div");
     wrap.className = "q-formatted-plain";
@@ -2491,7 +2891,6 @@ function renderFormattedQuestion(container, rawText) {
     container.appendChild(wrap);
   }
 }
-
 // ============================================================
 // Test-taking engine
 // ============================================================
@@ -2507,20 +2906,17 @@ let isTestActive = false;
 let isTestPaused = false;
 let pausedRemainingSeconds = 0;
 let pendingResumeSubjectId = null;
-
 function formatRemainingTime(totalSec) {
   const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
   const ss = String(totalSec % 60).padStart(2, "0");
   return `${mm}:${ss}`;
 }
-
 async function startTest(subjectId, forceFresh = false) {
   // If there's an unfinished paused attempt and fresh was not forced, open resume prompt
   if (!forceFresh && userPausedTests && userPausedTests[subjectId]) {
     openResumeConfirmModal(subjectId);
     return;
   }
-
   // If forceFresh is true, remove any existing draft from persistent storage
   if (forceFresh && userPausedTests && userPausedTests[subjectId]) {
     try {
@@ -2529,26 +2925,21 @@ async function startTest(subjectId, forceFresh = false) {
       console.warn("Could not delete draft before starting fresh:", e);
     }
   }
-
   currentSubject = subjectsCache.find(s => s.id === subjectId);
   if (!currentSubject) return;
-
   const snap = await getDocs(collection(db, "subjects", subjectId, "questions"));
   currentQuestions = [];
   snap.forEach(d => currentQuestions.push({ id: d.id, ...d.data() }));
   if (currentQuestions.length === 0) return;
-
   answers = {};
   marked = new Set();
   visited = new Set();
   currentIndex = 0;
   isTestPaused = false;
-
   document.getElementById("test-subject-name").textContent = `${currentSubject.subject} - ${currentSubject.testName}`;
   const durationMin = currentSubject.durationMinutes || 30;
   endTime = Date.now() + durationMin * 60 * 1000;
   isTestActive = true;
-
   showView("view-test");
   applyPaletteState();
   renderQuestion();
@@ -2556,14 +2947,12 @@ async function startTest(subjectId, forceFresh = false) {
   timerInterval = setInterval(tickTimer, 250);
   tickTimer();
 }
-
 function tickTimer() {
   if (isTestPaused) return;
   const remainingMs = endTime - Date.now();
   const timerEl = document.getElementById("timer");
   const headerTimerEl = document.getElementById("timer-header");
   const headerTimerWrap = document.getElementById("header-timer");
-
   if (remainingMs <= 0) {
     if (timerEl) timerEl.textContent = "00:00";
     if (headerTimerEl) headerTimerEl.textContent = "00:00";
@@ -2577,7 +2966,6 @@ function tickTimer() {
   const totalSec = Math.floor(remainingMs / 1000);
   const timeStr = formatRemainingTime(totalSec);
   const isLow = totalSec < 5 * 60;
-
   if (timerEl) {
     timerEl.textContent = timeStr;
     timerEl.classList.toggle("low", isLow);
@@ -2589,13 +2977,10 @@ function tickTimer() {
     headerTimerWrap.classList.toggle("low", isLow);
   }
 }
-
 async function savePausedDraft(subjectId, draftData) {
   let saved = false;
-
   // 1. Keep in memory immediately
   userPausedTests[subjectId] = { ...draftData };
-
   // 2. localStorage (instant local persistence on this browser / machine)
   try {
     localStorage.setItem(`ts_paused_${auth.currentUser.uid}_${subjectId}`, JSON.stringify(draftData));
@@ -2603,7 +2988,6 @@ async function savePausedDraft(subjectId, draftData) {
   } catch (lsErr) {
     console.warn("localStorage write error:", lsErr);
   }
-
   // 3. Firestore users/{uid} document (cloud persistent across devices with existing rules)
   try {
     const userRef = doc(db, "users", auth.currentUser.uid);
@@ -2616,7 +3000,6 @@ async function savePausedDraft(subjectId, draftData) {
   } catch (userErr) {
     console.warn("Firestore users/{uid} write error:", userErr);
   }
-
   // 4. Also try dedicated inProgressTests collection (if rules deployed in Firebase Console)
   try {
     await setDoc(doc(db, "inProgressTests", auth.currentUser.uid, "tests", subjectId), draftData);
@@ -2624,70 +3007,56 @@ async function savePausedDraft(subjectId, draftData) {
   } catch (collErr) {
     // Graceful fallback: users/{uid} and localStorage already secured the draft
   }
-
   return saved;
 }
-
 async function removePausedDraft(subjectId) {
   delete userPausedTests[subjectId];
-
   // 1. Remove from localStorage
   try {
     localStorage.removeItem(`ts_paused_${auth.currentUser.uid}_${subjectId}`);
   } catch (e) {}
-
   // 2. Remove from users/{uid} in Firestore
   try {
     await updateDoc(doc(db, "users", auth.currentUser.uid), {
       [`inProgressTests.${subjectId}`]: deleteField()
     });
   } catch (e) {}
-
   // 3. Remove from inProgressTests collection in Firestore
   try {
     await deleteDoc(doc(db, "inProgressTests", auth.currentUser.uid, "tests", subjectId));
   } catch (e) {}
 }
-
 async function pauseTest() {
   if (!isTestActive || isTestPaused || !currentSubject) return;
-
   // 1. Stop timer interval immediately
   if (timerInterval) {
     clearInterval(timerInterval);
     timerInterval = null;
   }
-
   const remainingMs = Math.max(0, endTime - Date.now());
   pausedRemainingSeconds = Math.max(1, Math.floor(remainingMs / 1000));
   isTestActive = false;
   isTestPaused = true;
-
   // Freeze the timer display immediately in both palette and header
   const frozenTime = formatRemainingTime(pausedRemainingSeconds);
   const timerEl = document.getElementById("timer");
   if (timerEl) timerEl.textContent = frozenTime;
   const headerTimerEl = document.getElementById("timer-header");
   if (headerTimerEl) headerTimerEl.textContent = frozenTime;
-
   // 2. Open pause modal with live test stats
   const answeredCount = Object.keys(answers).length;
   const markedCount = marked.size;
   const totalCount = currentQuestions.length;
-
   document.getElementById("pause-stat-name").textContent = currentSubject.testName || currentSubject.name || currentSubject.subject;
   document.getElementById("pause-stat-time").textContent = formatRemainingTime(pausedRemainingSeconds);
   document.getElementById("pause-stat-answered").textContent = `${answeredCount} of ${totalCount} questions`;
   document.getElementById("pause-stat-marked").textContent = `${markedCount} questions`;
-
   const savingInd = document.getElementById("pause-saving-indicator");
   const errEl = document.getElementById("pause-error-msg");
   savingInd.classList.remove("hidden");
   errEl.classList.add("hidden");
   errEl.textContent = "";
-
   document.getElementById("pause-modal").classList.remove("hidden");
-
   // 3. Prepare payload for persistent storage
   const draftData = {
     uid: auth.currentUser.uid,
@@ -2704,36 +3073,28 @@ async function pauseTest() {
     pausedAt: Date.now(),
     updatedAt: Date.now()
   };
-
   const saved = await savePausedDraft(currentSubject.id, draftData);
   savingInd.classList.add("hidden");
-
   if (!saved) {
     errEl.textContent = "Could not save progress to the cloud. Your in-memory answers are safe. You can resume now or retry pausing.";
     errEl.classList.remove("hidden");
   }
 }
-
 function resumeTestFromModal() {
   document.getElementById("pause-modal").classList.add("hidden");
   document.getElementById("pause-error-msg").classList.add("hidden");
-
   // Resume countdown from exact preserved seconds
   endTime = Date.now() + (pausedRemainingSeconds * 1000);
   isTestActive = true;
   isTestPaused = false;
-
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(tickTimer, 250);
   tickTimer();
-
   renderQuestion();
 }
-
 async function exitPausedTestToDashboard() {
   document.getElementById("pause-modal").classList.add("hidden");
   document.getElementById("pause-error-msg").classList.add("hidden");
-
   if (timerInterval) {
     clearInterval(timerInterval);
     timerInterval = null;
@@ -2742,26 +3103,21 @@ async function exitPausedTestToDashboard() {
   isTestPaused = false;
   navSubject = null;
   navType = null;
-
   showView("view-app");
   await loadSubjects();
 }
-
 function openResumeConfirmModal(subjectId) {
   pendingResumeSubjectId = subjectId;
   const draft = userPausedTests[subjectId];
   const subj = subjectsCache.find(s => s.id === subjectId);
   const testTitle = (subj && (subj.testName || subj.name)) || (draft && draft.testName) || "Test";
-
   document.getElementById("resume-modal-testname").textContent = testTitle;
-
   const modalDetails = document.getElementById("resume-modal-details");
   if (draft) {
     const remSec = draft.remainingSeconds || 0;
     const answeredCount = Object.keys(draft.answers || {}).length;
     const totalQ = (draft.questionIds || []).length || (subj ? subj.questionCount : 0);
     const markedCount = (draft.marked || []).length;
-
     modalDetails.innerHTML = `
       <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
         <div><strong>Time Remaining:</strong> <span style="font-family:var(--font-mono); color:var(--primary); font-size:14px;">${formatRemainingTime(remSec)}</span></div>
@@ -2773,13 +3129,10 @@ function openResumeConfirmModal(subjectId) {
   } else {
     modalDetails.innerHTML = `<div>Saved progress was found. Click below to resume your attempt.</div>`;
   }
-
   document.getElementById("resume-confirm-modal").classList.remove("hidden");
 }
-
 async function resumeTest(subjectId) {
   document.getElementById("resume-confirm-modal").classList.add("hidden");
-
   let draft = userPausedTests[subjectId];
   if (!draft) {
     // 1. Try localStorage
@@ -2806,13 +3159,11 @@ async function resumeTest(subjectId) {
       }
     } catch (e) {}
   }
-
   if (!draft) {
     alert("Could not locate saved progress for this test. Starting a fresh attempt.");
     startTest(subjectId, true);
     return;
   }
-
   currentSubject = subjectsCache.find(s => s.id === subjectId);
   if (!currentSubject) {
     try {
@@ -2826,17 +3177,14 @@ async function resumeTest(subjectId) {
     alert("Test configuration could not be loaded.");
     return;
   }
-
   // Load latest questions from Firestore
   const snap = await getDocs(collection(db, "subjects", subjectId, "questions"));
   const qMap = new Map();
   snap.forEach(d => qMap.set(d.id, { id: d.id, ...d.data() }));
-
   if (qMap.size === 0) {
     alert("This test no longer has any questions available.");
     return;
   }
-
   // Reconstruct questions according to draft order
   currentQuestions = [];
   let missingCount = 0;
@@ -2857,11 +3205,9 @@ async function resumeTest(subjectId) {
   } else {
     snap.forEach(d => currentQuestions.push({ id: d.id, ...d.data() }));
   }
-
   if (missingCount > 0) {
     alert(`Notice: ${missingCount} question(s) were modified or removed since your test was paused. Your answers to the remaining questions have been restored.`);
   }
-
   // Restore answers, marked, visited
   const validQIds = new Set(currentQuestions.map(q => q.id));
   answers = {};
@@ -2874,35 +3220,26 @@ async function resumeTest(subjectId) {
   }
   marked = new Set((draft.marked || []).filter(qid => validQIds.has(qid)));
   visited = new Set((draft.visited || []).filter(qid => validQIds.has(qid)));
-
   currentIndex = Math.max(0, Math.min(draft.currentIndex || 0, currentQuestions.length - 1));
-
   document.getElementById("test-subject-name").textContent = `${currentSubject.subject} - ${currentSubject.testName}`;
-
   pausedRemainingSeconds = Math.max(1, draft.remainingSeconds || (currentSubject.durationMinutes || 30) * 60);
   endTime = Date.now() + (pausedRemainingSeconds * 1000);
   isTestActive = true;
   isTestPaused = false;
-
   showView("view-test");
   applyPaletteState();
   renderQuestion();
-
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(tickTimer, 250);
   tickTimer();
 }
-
 async function discardPausedTest(subjectId, startFresh = false) {
   if (!confirm("Are you sure you want to discard this paused attempt? All saved answers and progress will be permanently lost.")) {
     return;
   }
-
   await removePausedDraft(subjectId);
-
   document.getElementById("resume-confirm-modal").classList.add("hidden");
   document.getElementById("pause-modal").classList.add("hidden");
-
   if (startFresh) {
     await startTest(subjectId, true);
   } else {
@@ -2916,15 +3253,12 @@ async function discardPausedTest(subjectId, startFresh = false) {
     await loadSubjects();
   }
 }
-
 function renderQuestion() {
   const q = currentQuestions[currentIndex];
   visited.add(q.id);
-
   document.getElementById("q-count").textContent = `Q ${currentIndex + 1} / ${currentQuestions.length}`;
   const badgeEl = document.getElementById("q-number-badge");
   if (badgeEl) badgeEl.textContent = `Question ${currentIndex + 1}`;
-
   const flagBtn = document.getElementById("btn-flag-toggle");
   const isFlagged = marked.has(q.id);
   if (flagBtn) {
@@ -2935,14 +3269,11 @@ function renderQuestion() {
     if (flagIcon) flagIcon.textContent = isFlagged ? "⚑" : "⚐";
     if (flagText) flagText.textContent = isFlagged ? "Flagged for Review" : "Flag for Review";
   }
-
   document.getElementById("btn-prev").disabled = currentIndex === 0;
-  renderFormattedQuestion(document.getElementById("q-text"), q.text);
-
+  renderFormattedQuestion(document.getElementById("q-text"), q.text, q.structured);
   const topicEl = document.getElementById("q-topic");
   if (q.topic) { topicEl.textContent = q.topic; topicEl.classList.remove("hidden"); }
   else { topicEl.classList.add("hidden"); }
-
   const optionsEl = document.getElementById("q-options");
   optionsEl.innerHTML = "";
   const optionLetters = ["A", "B", "C", "D", "E", "F"];
@@ -2955,12 +3286,10 @@ function renderQuestion() {
     row.setAttribute("aria-checked", isSelected ? "true" : "false");
     row.setAttribute("tabindex", "0");
     row.innerHTML = `<div class="option-marker">${letter}</div><div class="option-text">${escapeHtml(opt)}</div>`;
-
     const chooseOption = () => {
       answers[q.id] = i;
       renderQuestion();
     };
-
     row.addEventListener("click", chooseOption);
     row.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -2970,22 +3299,18 @@ function renderQuestion() {
     });
     optionsEl.appendChild(row);
   });
-
   renderPalette();
 }
-
 function renderPalette() {
   const answeredCount = currentQuestions.filter(q => answers[q.id] !== undefined).length;
   const markedCount = marked.size;
   const unattemptedCount = Math.max(0, currentQuestions.length - answeredCount);
-
   const statAnswered = document.getElementById("palette-stat-answered");
   if (statAnswered) statAnswered.innerHTML = `<strong>${answeredCount}</strong> Answered`;
   const statUnattempted = document.getElementById("palette-stat-unattempted");
   if (statUnattempted) statUnattempted.innerHTML = `<strong>${unattemptedCount}</strong> Unanswered`;
   const statMarked = document.getElementById("palette-stat-marked");
   if (statMarked) statMarked.innerHTML = `<strong>${markedCount}</strong> Flagged`;
-
   const grid = document.getElementById("palette-grid");
   grid.innerHTML = "";
   currentQuestions.forEach((q, i) => {
@@ -3006,7 +3331,6 @@ function renderPalette() {
     grid.appendChild(btn);
   });
 }
-
 function goNext() {
   if (currentIndex < currentQuestions.length - 1) currentIndex++;
   renderQuestion();
@@ -3015,14 +3339,12 @@ function goPrev() {
   if (currentIndex > 0) currentIndex--;
   renderQuestion();
 }
-
 document.getElementById("btn-prev").addEventListener("click", goPrev);
 document.getElementById("btn-save-next").addEventListener("click", goNext);
 document.getElementById("btn-mark-review").addEventListener("click", () => {
   marked.add(currentQuestions[currentIndex].id);
   goNext();
 });
-
 const btnFlagToggle = document.getElementById("btn-flag-toggle");
 if (btnFlagToggle) {
   btnFlagToggle.addEventListener("click", () => {
@@ -3036,7 +3358,6 @@ if (btnFlagToggle) {
     renderQuestion();
   });
 }
-
 document.getElementById("btn-clear").addEventListener("click", () => {
   delete answers[currentQuestions[currentIndex].id];
   renderQuestion();
@@ -3047,48 +3368,37 @@ document.getElementById("btn-submit-test").addEventListener("click", () => {
     submitTest();
   }
 });
-
 // Pause & Resume control listeners
 const btnPauseTest = document.getElementById("btn-pause-test");
 if (btnPauseTest) btnPauseTest.addEventListener("click", pauseTest);
-
 const btnPauseHeader = document.getElementById("btn-pause-test-header");
 if (btnPauseHeader) btnPauseHeader.addEventListener("click", pauseTest);
-
 const btnPauseAlt = document.getElementById("btn-pause-test-alt");
 if (btnPauseAlt) btnPauseAlt.addEventListener("click", pauseTest);
-
 const btnResumePaused = document.getElementById("btn-resume-paused");
 if (btnResumePaused) btnResumePaused.addEventListener("click", resumeTestFromModal);
-
 const btnExitDashboard = document.getElementById("btn-exit-to-dashboard");
 if (btnExitDashboard) btnExitDashboard.addEventListener("click", exitPausedTestToDashboard);
-
 const btnDiscardActive = document.getElementById("btn-discard-active-paused");
 if (btnDiscardActive) btnDiscardActive.addEventListener("click", () => {
   if (currentSubject) discardPausedTest(currentSubject.id, false);
 });
-
 const btnConfirmResume = document.getElementById("btn-confirm-resume");
 if (btnConfirmResume) btnConfirmResume.addEventListener("click", () => {
   if (pendingResumeSubjectId) resumeTest(pendingResumeSubjectId);
 });
-
 const btnConfirmDiscard = document.getElementById("btn-confirm-discard");
 if (btnConfirmDiscard) btnConfirmDiscard.addEventListener("click", () => {
   if (pendingResumeSubjectId) discardPausedTest(pendingResumeSubjectId, true);
 });
-
 const btnCancelResumeModal = document.getElementById("btn-cancel-resume-modal");
 if (btnCancelResumeModal) btnCancelResumeModal.addEventListener("click", () => {
   document.getElementById("resume-confirm-modal").classList.add("hidden");
 });
-
 // ============================================================
 // Collapsible Question Palette Sidebar
 // ============================================================
 let isPaletteCollapsed = sessionStorage.getItem("ts_palette_collapsed") === "true";
-
 function applyPaletteState() {
   const shell = document.getElementById("test-shell") || document.querySelector(".test-shell");
   const reopenTab = document.getElementById("palette-reopen-tab");
@@ -3096,20 +3406,16 @@ function applyPaletteState() {
   const toggleText = document.getElementById("palette-toggle-text");
   const toggleIcon = document.getElementById("palette-toggle-icon");
   const submitInline = document.getElementById("btn-submit-inline");
-
   if (!shell) return;
   shell.classList.toggle("palette-collapsed", isPaletteCollapsed);
-
   if (reopenTab) reopenTab.classList.toggle("hidden", !isPaletteCollapsed);
   if (submitInline) submitInline.classList.toggle("hidden", !isPaletteCollapsed);
-
   if (toggleText) toggleText.textContent = isPaletteCollapsed ? "Show Palette" : "Hide Palette";
   if (toggleIcon) toggleIcon.textContent = isPaletteCollapsed ? "⇤" : "⇥";
   if (toggleBtn) {
     toggleBtn.title = isPaletteCollapsed ? "Show Question Palette" : "Hide Question Palette";
   }
 }
-
 function togglePalette() {
   isPaletteCollapsed = !isPaletteCollapsed;
   try {
@@ -3117,16 +3423,12 @@ function togglePalette() {
   } catch (e) {}
   applyPaletteState();
 }
-
 const btnCollapsePalette = document.getElementById("btn-collapse-palette");
 if (btnCollapsePalette) btnCollapsePalette.addEventListener("click", togglePalette);
-
 const btnTogglePaletteHeader = document.getElementById("btn-toggle-palette-header");
 if (btnTogglePaletteHeader) btnTogglePaletteHeader.addEventListener("click", togglePalette);
-
 const paletteReopenTab = document.getElementById("palette-reopen-tab");
 if (paletteReopenTab) paletteReopenTab.addEventListener("click", togglePalette);
-
 const btnSubmitInline = document.getElementById("btn-submit-inline");
 if (btnSubmitInline) {
   btnSubmitInline.addEventListener("click", () => {
@@ -3136,14 +3438,12 @@ if (btnSubmitInline) {
     }
   });
 }
-
 async function submitTest() {
   isTestActive = false; 
   isTestPaused = false;
   let correct = 0, wrong = 0, unattempted = 0;
   const topicStats = {};
   const reviewData = [];
-
   currentQuestions.forEach(q => {
     const sel = answers[q.id];
     const isAnswered = sel !== undefined;
@@ -3151,7 +3451,6 @@ async function submitTest() {
     if (!isAnswered) unattempted++;
     else if (isCorrect) correct++;
     else wrong++;
-
     if (q.topic) {
       topicStats[q.topic] = topicStats[q.topic] || { correct: 0, total: 0 };
       topicStats[q.topic].total++;
@@ -3159,9 +3458,7 @@ async function submitTest() {
     }
     reviewData.push({ ...q, selected: sel, isAnswered, isCorrect });
   });
-
   const total = currentQuestions.length;
-
   try {
     await addDoc(collection(db, "attempts"), {
       uid: auth.currentUser.uid,
@@ -3179,7 +3476,6 @@ async function submitTest() {
       })),
       submittedAt: serverTimestamp()
     });
-
     // Successfully submitted attempt! Delete paused draft if one exists:
     try {
       await removePausedDraft(currentSubject.id);
@@ -3189,7 +3485,6 @@ async function submitTest() {
   } catch (e) {
     console.error("Could not save attempt:", e);
   }
-
   const resultsPayload = {
     subjectId: currentSubject.id,
     subjectName: currentSubject.testName || currentSubject.name,
@@ -3206,10 +3501,8 @@ async function submitTest() {
   } catch (e) {
     console.warn("Could not cache results in sessionStorage:", e);
   }
-
   renderResults(resultsPayload);
 }
-
 // ============================================================
 // Results
 // ============================================================
@@ -3217,14 +3510,12 @@ function renderResults(r) {
   document.getElementById("results-subject-name").textContent = currentSubject.testName || currentSubject.name || currentSubject.subject || "Results";
   const pct = r.total > 0 ? Math.round((r.correct / r.total) * 100) : 0;
   document.getElementById("results-meta").textContent = `${r.correct} of ${r.total} correct • Completed in ${currentSubject.subject || "General"}`;
-
   document.getElementById("results-summary").innerHTML = `
     <div class="result-stat"><div class="num">${pct}%</div><div class="label">Score</div></div>
     <div class="result-stat"><div class="num" style="color:var(--success)">${r.correct}</div><div class="label">Correct</div></div>
     <div class="result-stat"><div class="num" style="color:var(--danger)">${r.wrong}</div><div class="label">Incorrect</div></div>
     <div class="result-stat"><div class="num" style="color:var(--text-muted)">${r.unattempted}</div><div class="label">Unanswered</div></div>
   `;
-
   // Update review filter tab counts
   const countAll = document.getElementById("count-all");
   if (countAll) countAll.textContent = r.reviewData.length;
@@ -3234,7 +3525,6 @@ function renderResults(r) {
   if (countCorrect) countCorrect.textContent = r.correct;
   const countUnattempted = document.getElementById("count-unattempted");
   if (countUnattempted) countUnattempted.textContent = r.unattempted;
-
   const topicKeys = Object.keys(r.topicStats);
   const topicBarsEl = document.getElementById("topic-bars");
   if (topicKeys.length === 0) {
@@ -3251,7 +3541,6 @@ function renderResults(r) {
         </div>`;
     }).join("");
   }
-
   const reviewEl = document.getElementById("review-list");
   reviewEl.innerHTML = "";
   r.reviewData.forEach((q, idx) => {
@@ -3266,21 +3555,16 @@ function renderResults(r) {
         cls = "wrong";
       }
     }
-
     const yourAnswer = q.isAnswered ? q.options[q.selected] : "Not attempted";
-
     const itemEl = document.createElement("div");
     itemEl.className = `review-item ${cls}`;
     itemEl.setAttribute("data-status", status);
-
     const itemHeader = document.createElement("div");
     itemHeader.style.cssText = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;";
-
     const badge = document.createElement("span");
     badge.className = "q-badge";
     badge.textContent = `Question ${idx + 1}`;
     itemHeader.appendChild(badge);
-
     if (q.topic) {
       const topicTag = document.createElement("span");
       topicTag.className = "q-topic";
@@ -3288,30 +3572,25 @@ function renderResults(r) {
       itemHeader.appendChild(topicTag);
     }
     itemEl.appendChild(itemHeader);
-
     const qTextDiv = document.createElement("div");
-    renderFormattedQuestion(qTextDiv, q.text);
+    renderFormattedQuestion(qTextDiv, q.text, q.structured);
     itemEl.appendChild(qTextDiv);
-
     const ansDiv = document.createElement("div");
     ansDiv.className = `review-answer ${q.isAnswered ? (q.isCorrect ? "correct-text" : "wrong-text") : ""}`;
     ansDiv.textContent = `Your answer: ${yourAnswer}`;
     itemEl.appendChild(ansDiv);
-
     if (!q.isCorrect) {
       const correctDiv = document.createElement("div");
       correctDiv.className = "review-answer correct-text";
       correctDiv.textContent = `Correct answer: ${q.options[q.correctIndex]}`;
       itemEl.appendChild(correctDiv);
     }
-
     if (q.explanation) {
       const expDiv = document.createElement("div");
       expDiv.className = "review-explanation";
       expDiv.innerHTML = `<strong>💡 Explanation:</strong> ${escapeHtml(q.explanation)}`;
       itemEl.appendChild(expDiv);
     }
-
     // AI Question Tutor Action Button
     const actionsBar = document.createElement("div");
     actionsBar.className = "review-actions-bar";
@@ -3323,10 +3602,8 @@ function renderResults(r) {
     aiBtn.onclick = () => openAiQuestionTutor(q, idx + 1, r);
     actionsBar.appendChild(aiBtn);
     itemEl.appendChild(actionsBar);
-
     reviewEl.appendChild(itemEl);
   });
-
   // Filter tab switching
   const filterBtns = document.querySelectorAll(".review-filter-btn");
   function applyReviewFilter(filter) {
@@ -3341,23 +3618,19 @@ function renderResults(r) {
       }
     });
   }
-
   filterBtns.forEach(btn => {
     btn.onclick = () => {
       applyReviewFilter(btn.getAttribute("data-filter"));
     };
   });
   applyReviewFilter("all");
-
   // Wire up Master Test Analyzer button
   const btnAnalyzeTest = document.getElementById("btn-analyze-test-ai");
   if (btnAnalyzeTest) {
     btnAnalyzeTest.onclick = () => openAiMasterTestAnalyzer(r);
   }
-
   showView("view-results");
 }
-
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, "&amp;")
@@ -3366,7 +3639,6 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
-
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && isTestActive && !isTestPaused) {
     alert("Anti-Cheating Alert: You left the test tab! Your test has been automatically submitted.");
@@ -3374,7 +3646,6 @@ document.addEventListener("visibilitychange", () => {
     submitTest();
   }
 });
-
 const homeLink = document.getElementById("home-link");
 if (homeLink) {
   homeLink.addEventListener("click", () => {
@@ -3396,7 +3667,6 @@ if (homeLink) {
     }
   });
 }
-
 // ============================================================
 // TestWise AI: Question Tutor & Master Test Analyzer
 // ============================================================
@@ -3406,7 +3676,6 @@ let currentAiSessionKey = null;
 let currentAiResults = null;
 let isAiGenerating = false;
 const aiConversationsCache = {};
-
 function getCachedConversation(key) {
   if (aiConversationsCache[key]) return aiConversationsCache[key];
   try {
@@ -3421,14 +3690,12 @@ function getCachedConversation(key) {
   } catch (e) {}
   return [];
 }
-
 function saveCachedConversation(key, messages) {
   aiConversationsCache[key] = messages;
   try {
     sessionStorage.setItem(key, JSON.stringify(messages));
   } catch (e) {}
 }
-
 async function callAiTutorApi(payload) {
   if (!auth.currentUser) {
     throw new Error("You must be logged in to use TestWise AI.");
@@ -3442,7 +3709,6 @@ async function callAiTutorApi(payload) {
     },
     body: JSON.stringify(payload)
   });
-
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
     const err = new Error(data.error || `Server responded with status ${resp.status}`);
@@ -3455,36 +3721,28 @@ async function callAiTutorApi(payload) {
   }
   return data;
 }
-
 function renderSafeMarkdown(md) {
   if (!md) return "";
   let html = escapeHtml(md);
-
   // Code blocks
   html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
     return `<pre><code>${code.trim()}</code></pre>`;
   });
-
   // Inline code
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-
   // Bold
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-
   // Italic
   html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-
   // Headers (h3, h4)
   html = html.replace(/^### (.*$)/gim, "<h4>$1</h4>");
   html = html.replace(/^## (.*$)/gim, "<h3>$1</h3>");
   html = html.replace(/^# (.*$)/gim, "<h3>$1</h3>");
-
   // Markdown Tables
   const lines = html.split("\n");
   const processedLines = [];
   let inTable = false;
   let tableRows = [];
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (line.startsWith("|") && line.endsWith("|")) {
@@ -3514,7 +3772,6 @@ function renderSafeMarkdown(md) {
       processedLines.push(lines[i]);
     }
   }
-
   if (inTable && tableRows.length > 0) {
     let tableHtml = "<table><thead><tr>";
     tableRows[0].forEach(cell => { tableHtml += `<th>${cell}</th>`; });
@@ -3527,16 +3784,12 @@ function renderSafeMarkdown(md) {
     tableHtml += "</tbody></table>";
     processedLines.push(tableHtml);
   }
-
   html = processedLines.join("\n");
-
   // Lists (- or *)
   html = html.replace(/(?:^|\n)[-*] (.*)/g, "<li>$1</li>");
   html = html.replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>");
-
   // Numbered lists (1. )
   html = html.replace(/(?:^|\n)\d+\. (.*)/g, "<li>$1</li>");
-
   // Paragraphs
   html = html.split(/\n\s*\n/).map(p => {
     p = p.trim();
@@ -3546,10 +3799,8 @@ function renderSafeMarkdown(md) {
     }
     return `<p>${p.replace(/\n/g, "<br/>")}</p>`;
   }).join("");
-
   return html;
 }
-
 function openAiDrawer() {
   const drawer = document.getElementById("ai-drawer");
   const backdrop = document.getElementById("ai-drawer-backdrop");
@@ -3557,7 +3808,6 @@ function openAiDrawer() {
   if (backdrop) backdrop.classList.remove("hidden");
   document.body.style.overflow = "hidden";
 }
-
 function closeAiDrawer() {
   const drawer = document.getElementById("ai-drawer");
   const backdrop = document.getElementById("ai-drawer-backdrop");
@@ -3565,12 +3815,10 @@ function closeAiDrawer() {
   if (backdrop) backdrop.classList.add("hidden");
   document.body.style.overflow = "";
 }
-
 function renderAiMessages(messages) {
   const body = document.getElementById("ai-chat-body");
   if (!body) return;
   body.innerHTML = "";
-
   messages.forEach((msg) => {
     const wrap = document.createElement("div");
     wrap.className = `ai-message ${msg.role === "assistant" ? "assistant" : "user"}`;
@@ -3581,10 +3829,8 @@ function renderAiMessages(messages) {
     }
     body.appendChild(wrap);
   });
-
   body.scrollTop = body.scrollHeight;
 }
-
 function renderAiLoader() {
   const body = document.getElementById("ai-chat-body");
   if (!body) return;
@@ -3602,22 +3848,18 @@ function renderAiLoader() {
   body.appendChild(loader);
   body.scrollTop = body.scrollHeight;
 }
-
 function removeAiLoader() {
   const loader = document.getElementById("ai-active-loader");
   if (loader) loader.remove();
 }
-
 function renderAiError(err, onRetry) {
   removeAiLoader();
   const body = document.getElementById("ai-chat-body");
   if (!body) return;
-
   const errBox = document.createElement("div");
   errBox.className = "ai-message assistant";
   errBox.style.borderColor = "var(--danger)";
   errBox.style.background = "color-mix(in srgb, var(--danger) 8%, var(--surface))";
-
   if (err.needsKey) {
     const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
     errBox.innerHTML = `
@@ -3653,36 +3895,29 @@ function renderAiError(err, onRetry) {
       errBox.appendChild(retryBtn);
     }
   }
-
   body.appendChild(errBox);
   body.scrollTop = body.scrollHeight;
 }
-
 async function sendAiMessage(promptText) {
   if (isAiGenerating) return;
   const inputEl = document.getElementById("ai-drawer-input");
   const text = (promptText || (inputEl ? inputEl.value : "")).trim();
   if (!text) return;
-
   if (inputEl && !promptText) {
     inputEl.value = "";
     inputEl.style.height = "auto";
   }
-
   const messages = getCachedConversation(currentAiSessionKey);
   const newMessages = [...messages, { role: "user", content: text }];
   renderAiMessages(newMessages);
-
   isAiGenerating = true;
   renderAiLoader();
-
   try {
     const res = await callAiTutorApi({
       mode: currentAiMode,
       context: currentAiContext,
       messages: newMessages
     });
-
     removeAiLoader();
     const finalMessages = [...newMessages, { role: "assistant", content: res.text || "No response received." }];
     saveCachedConversation(currentAiSessionKey, finalMessages);
@@ -3693,15 +3928,12 @@ async function sendAiMessage(promptText) {
     isAiGenerating = false;
   }
 }
-
 function openAiQuestionTutor(q, questionNumber, results) {
   currentAiMode = "question_tutor";
   currentAiResults = results;
   const subjectId = results?.subjectId || currentSubject?.id || "test";
   currentAiSessionKey = `testwise_q_${subjectId}_${q.id}`;
-
   const opts = q.options || [];
-
   currentAiContext = {
     subject: results?.subjectCategory || currentSubject?.subject || "General",
     subjectName: results?.subjectName || currentSubject?.testName || currentSubject?.name || "Practice Test",
@@ -3715,18 +3947,15 @@ function openAiQuestionTutor(q, questionNumber, results) {
     isCorrect: q.isCorrect,
     explanation: q.explanation || ""
   };
-
   // Header UI
   const badgeEl = document.getElementById("ai-drawer-mode-badge");
   const titleEl = document.getElementById("ai-drawer-title");
   const subEl = document.getElementById("ai-drawer-sub");
   const noticeEl = document.getElementById("ai-notice-text");
-
   if (badgeEl) badgeEl.textContent = "✨ Question Tutor";
   if (titleEl) titleEl.textContent = `Question ${questionNumber}: ${q.topic || "Question Study"}`;
   if (subEl) subEl.textContent = `${currentSubject?.testName || "Practice Test"} • ${q.isAnswered ? (q.isCorrect ? "Correct" : "Incorrect") : "Unanswered"}`;
   if (noticeEl) noticeEl.textContent = `TestWise AI evaluates Question ${questionNumber} and explains the underlying concept.`;
-
   // Quick Chips
   const chipsContainer = document.getElementById("ai-quick-chips");
   if (chipsContainer) {
@@ -3742,9 +3971,7 @@ function openAiQuestionTutor(q, questionNumber, results) {
       btn.onclick = () => sendAiMessage(btn.textContent.trim());
     });
   }
-
   openAiDrawer();
-
   const existing = getCachedConversation(currentAiSessionKey);
   if (existing.length > 0) {
     renderAiMessages(existing);
@@ -3754,13 +3981,11 @@ function openAiQuestionTutor(q, questionNumber, results) {
     sendAiMessage(initialPrompt);
   }
 }
-
 function openAiMasterTestAnalyzer(results) {
   currentAiMode = "test_analyzer";
   currentAiResults = results;
   const subjectId = results?.subjectId || currentSubject?.id || "test";
   currentAiSessionKey = `testwise_master_${subjectId}`;
-
   const qs = (results.reviewData || []).map((q, idx) => ({
     number: idx + 1,
     topic: q.topic || "General",
@@ -3768,7 +3993,6 @@ function openAiMasterTestAnalyzer(results) {
     userAnswer: q.isAnswered ? (q.options[q.selected] || "Selected") : "Unanswered",
     correctAnswer: q.options[q.correctIndex] || ""
   }));
-
   currentAiContext = {
     subject: results.subjectCategory || currentSubject?.subject || "General",
     subjectName: results.subjectName || currentSubject?.testName || currentSubject?.name || "Practice Test",
@@ -3779,18 +4003,15 @@ function openAiMasterTestAnalyzer(results) {
     topicStats: results.topicStats || {},
     questionsSummary: qs
   };
-
   // Header UI
   const badgeEl = document.getElementById("ai-drawer-mode-badge");
   const titleEl = document.getElementById("ai-drawer-title");
   const subEl = document.getElementById("ai-drawer-sub");
   const noticeEl = document.getElementById("ai-notice-text");
-
   if (badgeEl) badgeEl.textContent = "✨ Master Test Analyzer";
   if (titleEl) titleEl.textContent = "Complete Test Diagnostic";
   if (subEl) subEl.textContent = `${currentSubject?.testName || "Practice Test"} (${results.correct}/${results.total} Score)`;
   if (noticeEl) noticeEl.textContent = "TestWise AI evaluates your complete test attempt across all topics and generates an actionable revision plan.";
-
   // Quick Chips
   const chipsContainer = document.getElementById("ai-quick-chips");
   if (chipsContainer) {
@@ -3805,9 +4026,7 @@ function openAiMasterTestAnalyzer(results) {
       btn.onclick = () => sendAiMessage(btn.textContent.trim());
     });
   }
-
   openAiDrawer();
-
   const existing = getCachedConversation(currentAiSessionKey);
   if (existing.length > 0) {
     renderAiMessages(existing);
@@ -3817,69 +4036,51 @@ function openAiMasterTestAnalyzer(results) {
     sendAiMessage(initialPrompt);
   }
 }
-
 function exportStudyNotes() {
   const messages = getCachedConversation(currentAiSessionKey);
   if (!messages || messages.length === 0) {
     alert("No conversation or notes available to export yet.");
     return;
   }
-
   let mdContent = "";
   let filename = "Study-Notes.md";
-
   if (currentAiMode === "question_tutor" && currentAiContext) {
     const ctx = currentAiContext;
     const safeTopic = (ctx.topic || "General").replace(/[^a-zA-Z0-9_-]/g, "_");
     filename = `Question-Tutor_${safeTopic}_Q${ctx.questionNumber || "1"}.md`;
-
     mdContent = `# TestWise AI Question Tutor Notes
 **Test:** ${ctx.subjectName || "Practice Test"} (${ctx.subject || "General"})
 **Topic:** ${ctx.topic || "General"}
 **Question Number:** ${ctx.questionNumber || "N/A"}
 **Status:** ${ctx.isAnswered ? (ctx.isCorrect ? "Correct" : "Incorrect") : "Unanswered"}
-
 ---
-
 ### Question
 ${ctx.text || ""}
-
 ### Options
 ${(ctx.options || []).map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join("\n")}
-
 **Correct Answer:** Option ${String.fromCharCode(65 + (ctx.correctIndex || 0))} - ${(ctx.options || [])[ctx.correctIndex || 0] || ""}
 **Student's Answer:** ${ctx.isAnswered ? `Option ${String.fromCharCode(65 + ctx.selected)} - ${(ctx.options || [])[ctx.selected] || ""}` : "Not attempted"}
 ${ctx.explanation ? `\n**Provided Explanation:**\n${ctx.explanation}\n` : ""}
-
 ---
-
 ## AI Tutoring Conversation & Notes
-
 `;
   } else if (currentAiContext) {
     const ctx = currentAiContext;
     const safeTitle = (ctx.subjectName || "Test").replace(/[^a-zA-Z0-9_-]/g, "_");
     filename = `Test-Analysis_${safeTitle}.md`;
-
     mdContent = `# TestWise AI Master Test Analysis Report
 **Test Title:** ${ctx.subjectName || "Practice Test"}
 **Subject Category:** ${ctx.subject || "General"}
 **Total Questions:** ${ctx.total}
 **Score:** ${ctx.correct} / ${ctx.total} (${ctx.total > 0 ? Math.round((ctx.correct / ctx.total) * 100) : 0}%)
 **Correct:** ${ctx.correct} | **Incorrect:** ${ctx.wrong} | **Unanswered:** ${ctx.unattempted}
-
 ---
-
 ## Topic Breakdown
 ${Object.entries(ctx.topicStats || {}).map(([top, stat]) => `- **${top}:** ${stat.correct}/${stat.total} correct (${stat.total > 0 ? Math.round((stat.correct / stat.total) * 100) : 0}%)`).join("\n")}
-
 ---
-
 ## AI Diagnostic Analysis & Study Plan
-
 `;
   }
-
   // Append conversation messages
   messages.forEach(msg => {
     if (msg.role === "user") {
@@ -3888,7 +4089,6 @@ ${Object.entries(ctx.topicStats || {}).map(([top, stat]) => `- **${top}:** ${sta
       mdContent += `### ✨ TestWise AI Response:\n${msg.content}\n\n`;
     }
   });
-
   const blob = new Blob([mdContent], { type: "text/markdown;charset=utf-8" });
   const downloadUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -3899,7 +4099,6 @@ ${Object.entries(ctx.topicStats || {}).map(([top, stat]) => `- **${top}:** ${sta
   document.body.removeChild(a);
   URL.revokeObjectURL(downloadUrl);
 }
-
 function copyAiResponse() {
   const messages = getCachedConversation(currentAiSessionKey);
   const lastAssistant = [...messages].reverse().find(m => m.role === "assistant");
@@ -3907,7 +4106,6 @@ function copyAiResponse() {
     alert("No response available to copy.");
     return;
   }
-
   navigator.clipboard.writeText(lastAssistant.content).then(() => {
     const btn = document.getElementById("btn-ai-copy-response");
     if (btn) {
@@ -3919,7 +4117,6 @@ function copyAiResponse() {
     alert("Failed to copy to clipboard: " + err.message);
   });
 }
-
 function resetAiChat() {
   if (confirm("Start a new chat session for this item? Your current chat will be refreshed.")) {
     saveCachedConversation(currentAiSessionKey, []);
@@ -3933,21 +4130,17 @@ function resetAiChat() {
     }
   }
 }
-
 // Wire up global TestWise AI drawer listeners
 function initTestWiseAiControls() {
   const closeBtn = document.getElementById("ai-drawer-close");
   const backdrop = document.getElementById("ai-drawer-backdrop");
   if (closeBtn) closeBtn.onclick = closeAiDrawer;
   if (backdrop) backdrop.onclick = closeAiDrawer;
-
   const sendBtn = document.getElementById("ai-drawer-send");
   const inputEl = document.getElementById("ai-drawer-input");
-
   if (sendBtn) {
     sendBtn.onclick = () => sendAiMessage();
   }
-
   if (inputEl) {
     inputEl.onkeydown = (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -3960,17 +4153,11 @@ function initTestWiseAiControls() {
       inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
     };
   }
-
   const exportBtn = document.getElementById("btn-ai-export-notes");
   if (exportBtn) exportBtn.onclick = exportStudyNotes;
-
   const copyBtn = document.getElementById("btn-ai-copy-response");
   if (copyBtn) copyBtn.onclick = copyAiResponse;
-
   const newChatBtn = document.getElementById("btn-ai-new-chat");
   if (newChatBtn) newChatBtn.onclick = resetAiChat;
 }
-
 initTestWiseAiControls();
-
-

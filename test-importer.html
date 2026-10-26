@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MashQ Question Importer Test Suite</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 25px; background: #0f172a; color: #f8fafc; }
+    h1 { margin-bottom: 5px; font-size: 24px; color: #38bdf8; }
+    .summary-card { background: #1e293b; padding: 18px 24px; border-radius: 8px; margin-bottom: 24px; border: 1px solid #334155; }
+    .test-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; margin-bottom: 14px; padding: 16px; }
+    .test-card.pass { border-left: 5px solid #10b981; }
+    .test-card.fail { border-left: 5px solid #ef4444; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 8px; }
+    .badge.pass { background: #064e3b; color: #34d399; }
+    .badge.fail { background: #7f1d1d; color: #f87171; }
+    pre { background: #090d16; padding: 10px; border-radius: 4px; font-size: 12px; overflow-x: auto; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <h1>🧪 MashQ Universal Importer Test Suite</h1>
+  <p style="color: #94a3b8; margin-top: 0;">Automated verification of the 13 required parser test fixture groups</p>
+  
+  <div class="summary-card" id="summary-card">
+    <div style="font-size: 18px; font-weight: bold;" id="summary-status">Running tests...</div>
+    <div id="summary-metrics" style="margin-top: 8px; color: #cbd5e1;"></div>
+  </div>
+  <div id="test-results"></div>
+  <script type="module">
+    import {
+      runQuestionImportPipeline,
+      normalizeText,
+      convertHtmlToStructuredText,
+      separateAnswerKey
+    } from "./question-importer.js";
+    const resultsDiv = document.getElementById("test-results");
+    const summaryStatus = document.getElementById("summary-status");
+    const summaryMetrics = document.getElementById("summary-metrics");
+    const tests = [
+      {
+        name: "Test Group 1: Conventional MCQ",
+        input: `1. Which institution regulates the securities market in India?
+A. RBI
+B. SEBI
+C. NABARD
+D. NITI Aayog
+Answer: B
+Explanation: SEBI regulates the securities market.`,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.options.length !== 4) return `Expected 4 options, got ${q.options.length}`;
+          if (q.correctIndex !== 1) return `Expected correctIndex 1 (B), got ${q.correctIndex}`;
+          if (!q.explanation.includes("securities market")) return `Explanation not preserved: "${q.explanation}"`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 2: Alternative numbering and lowercase options",
+        input: `Q. 1) Which of the following is a direct tax?
+(a) GST
+(b) Customs duty
+(c) Income tax
+(d) Excise duty
+Ans. (c)`,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.options.length !== 4) return `Expected 4 options, got ${q.options.length}`;
+          if (q.correctIndex !== 2) return `Expected correctIndex 2 (C), got ${q.correctIndex}`;
+          if (!q.text.toLowerCase().includes("direct tax")) return `Text mismatch: ${q.text}`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 3: Options inside one paragraph",
+        input: `Which of the following is a direct tax? (A) GST (B) Customs duty (C) Income tax (D) Excise duty Correct Answer: C`,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.options.length !== 4) return `Expected 4 options, got ${q.options.length}`;
+          if (q.options[0] !== "GST" || q.options[2] !== "Income tax") return `Options parsed incorrectly: ${JSON.stringify(q.options)}`;
+          if (q.correctIndex !== 2) return `Expected correctIndex 2 (C), got ${q.correctIndex}`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 4: Statement-based question",
+        input: `Consider the following statements:
+I. The RBI conducts monetary policy.
+II. SEBI regulates the securities market.
+III. NABARD supports rural development.
+Which of the statements given above are correct?
+A. I only
+B. I and II only
+C. II and III only
+D. I, II and III
+Answer: D`,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.questionType !== "statement") return `Expected questionType 'statement', got '${q.questionType}'`;
+          if (q.options.length !== 4) return `Expected 4 options, got ${q.options.length}`;
+          if (q.correctIndex !== 3) return `Expected correctIndex 3 (D), got ${q.correctIndex}`;
+          if (!q.text.includes("III") && !q.text.includes("NABARD")) return `Statements not preserved in text`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 5: Paragraph-form match-the-following question",
+        input: `Match List I with List II. List I contains 1. RBI, 2. SEBI, 3. NABARD. List II contains A. Securities market regulation, B. Rural development finance, C. Monetary policy. Choose the correct matching combination. (A) 1-C, 2-A, 3-B (B) 1-A, 2-B, 3-C (C) 1-B, 2-C, 3-A (D) 1-C, 2-B, 3-A. Answer: A.`,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.questionType !== "match") return `Expected questionType 'match', got '${q.questionType}'`;
+          if (q.options.length !== 4) return `Expected 4 options, got ${q.options.length}`;
+          if (q.correctIndex !== 0) return `Expected correctIndex 0 (A), got ${q.correctIndex}`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 6: Table-form matching question (HTML extraction)",
+        input: convertHtmlToStructuredText(`
+          <p>Match List I with List II:</p>
+          <table>
+            <tr><th>List I</th><th>List II</th></tr>
+            <tr><td>1. RBI</td><td>A. Monetary policy</td></tr>
+            <tr><td>2. SEBI</td><td>B. Securities regulation</td></tr>
+            <tr><td>3. NABARD</td><td>C. Rural development</td></tr>
+          </table>
+          <p>Choose the correct code:</p>
+          <p>(A) 1-A, 2-B, 3-C</p>
+          <p>(B) 1-B, 2-A, 3-C</p>
+          <p>(C) 1-C, 2-B, 3-A</p>
+          <p>(D) 1-A, 2-C, 3-B</p>
+          <p>Answer: A</p>
+        `),
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.questionType !== "match") return `Expected questionType 'match', got '${q.questionType}'`;
+          if (q.options.length !== 4) return `Expected 4 options, got ${q.options.length}`;
+          if (q.correctIndex !== 0) return `Expected correctIndex 0 (A), got ${q.correctIndex}`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 7: Assertion–Reason",
+        input: `Assertion (A): The RBI is India's central bank.
+Reason (R): It performs central banking functions and conducts monetary policy.
+Choose the correct answer:
+A. Both A and R are true, and R explains A.
+B. Both A and R are true, but R does not explain A.
+C. A is true, but R is false.
+D. A is false, but R is true.
+Answer: A`,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.questionType !== "assertion_reason") return `Expected questionType 'assertion_reason', got '${q.questionType}'`;
+          if (q.options.length !== 4) return `Expected 4 options, got ${q.options.length}`;
+          if (q.correctIndex !== 0) return `Expected correctIndex 0 (A), got ${q.correctIndex}`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 8: Fill-in-the-blank MCQ",
+        input: `The headquarters of the Reserve Bank of India is located in ______.
+A. New Delhi
+B. Mumbai
+C. Kolkata
+D. Chennai
+Answer: B`,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.questionType !== "fill_in_the_blank") return `Expected questionType 'fill_in_the_blank', got '${q.questionType}'`;
+          if (!q.text.includes("______")) return `Blank location missing from text`;
+          if (q.options.length !== 4) return `Expected 4 options, got ${q.options.length}`;
+          if (q.correctIndex !== 1) return `Expected correctIndex 1 (B), got ${q.correctIndex}`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 9: Questions with inconsistent whitespace",
+        input: `1.    Which institution conducts monetary policy?   
+    
+   A.   RBI   
+   B.   SEBI   
+   C.   NABARD   
+   D.   Finance Ministry   
+Answer:   A   
+Explanation:    The Reserve Bank of India conducts monetary policy in India.   `,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.options[0] !== "RBI") return `Option A whitespace not trimmed: "${q.options[0]}"`;
+          if (q.correctIndex !== 0) return `Expected correctIndex 0 (A), got ${q.correctIndex}`;
+          if (!q.explanation.includes("Reserve Bank")) return `Explanation not preserved`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 10: Answer key at the end",
+        input: `1. Which institution regulates the securities market?
+A. RBI
+B. SEBI
+C. NABARD
+D. NITI Aayog
+2. Which institution regulates monetary policy?
+A. RBI
+B. SEBI
+C. NABARD
+D. NITI Aayog
+Answer Key: 1-B, 2-A`,
+        assert: (res) => {
+          if (res.questions.length !== 2) return `Expected 2 questions, got ${res.questions.length}`;
+          if (res.questions[0].correctIndex !== 1) return `Q1 expected correctIndex 1 (B), got ${res.questions[0].correctIndex}`;
+          if (res.questions[1].correctIndex !== 0) return `Q2 expected correctIndex 0 (A), got ${res.questions[1].correctIndex}`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 11: Ambiguous content & unresolved answers",
+        input: `1. This is a question with four options but no answer was provided anywhere in the text.
+A. Option One
+B. Option Two
+C. Option Three
+D. Option Four`,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.correctIndex !== null) return `Expected correctIndex to be null (unresolved), got ${q.correctIndex}`;
+          if (q.status !== "review") return `Expected status 'review', got '${q.status}'`;
+          if (q.warnings.length === 0) return `Expected unresolved answer warning`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 12: Mixed-format document",
+        input: `1. Standard question about capital of India?
+A. New Delhi
+B. Mumbai
+C. Kolkata
+D. Chennai
+Answer: A
+2. Consider the following statements:
+I. Statement one
+II. Statement two
+Which of the statements given above is correct?
+A. I only
+B. II only
+C. Both
+D. Neither
+Answer: C
+3. Match List I with List II. List I contains 1. X, 2. Y. List II contains A. Alpha, B. Beta. Choose the correct code. (A) 1-A, 2-B (B) 1-B, 2-A. Answer: A.
+4. The symbol of Reserve Bank of India has a ______ tree.
+A. Banyan
+B. Palm
+C. Neem
+D. Peepal
+Answer: B`,
+        assert: (res) => {
+          if (res.questions.length !== 4) return `Expected 4 questions, got ${res.questions.length}`;
+          if (res.questions[0].questionType !== "mcq") return `Q1 expected mcq, got ${res.questions[0].questionType}`;
+          if (res.questions[1].questionType !== "statement") return `Q2 expected statement, got ${res.questions[1].questionType}`;
+          if (res.questions[2].questionType !== "match") return `Q3 expected match, got ${res.questions[2].questionType}`;
+          if (res.questions[3].questionType !== "fill_in_the_blank") return `Q4 expected fill_in_the_blank, got ${res.questions[3].questionType}`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 13: Duplicate Detection within batch",
+        input: `1. What is the currency of Japan?
+A. Yen
+B. Won
+C. Yuan
+D. Dollar
+Answer: A
+2. What is the currency of Japan?
+A. Yen
+B. Won
+C. Yuan
+D. Dollar
+Answer: A`,
+        assert: (res) => {
+          if (res.questions.length !== 2) return `Expected 2 questions, got ${res.questions.length}`;
+          if (!res.questions[1].isDuplicate) return `Second question was not flagged as duplicate!`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 14: Stripping AI [Reconstructed option] tags",
+        input: `Consider the following statements regarding published sources:
+I. Publications of IMF are secondary.
+II. Trade reports are primary.
+A) I and II only [Reconstructed option]
+B) I and III only
+C) II and III only [Reconstructed option]
+D) I, II and III [Reconstructed option]
+Answer: B
+Explanation: IMF is secondary.`,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.options.length !== 4) return `Expected 4 options, got ${q.options.length}`;
+          for (let opt of q.options) {
+            if (opt.includes("[Reconstructed") || opt.toLowerCase().includes("reconstructed")) {
+              return `Option still contains reconstructed tag: "${opt}"`;
+            }
+          }
+          if (q.correctIndex !== 1) return `Expected correctIndex 1 (B), got ${q.correctIndex}`;
+          return true;
+        }
+      },
+      {
+        name: "Test Group 15: Match-the-Following with sub-items and combo choices",
+        input: `Match List I (Method of Primary Data Collection) with List II (Key Feature / Suitability):
+List I:
+a) Direct Personal Investigation
+b) Indirect Oral Investigation
+c) Mailed Questionnaire Method
+d) Information through Local Correspondents
+List II:
+1. Lowest response rate
+2. Suitable when the field of inquiry is small and high accuracy is required
+3. Used when target informants are reluctant to provide direct information
+4. Used when continuous information is needed over a wide area
+A) a-1, b-3, c-2, d-4 [Reconstructed option]
+B) a-2, b-1, c-3, d-4 [Reconstructed option]
+C) a-3, b-2, c-1, d-4 [Reconstructed option]
+D) a-2, b-3, c-1, d-4
+Answer: D
+Explanation: Direct personal investigation is best when small.`,
+        assert: (res) => {
+          if (res.questions.length !== 1) return `Expected 1 question, got ${res.questions.length}`;
+          const q = res.questions[0];
+          if (q.options.length !== 4) return `Expected 4 options, got ${q.options.length}`;
+          if (q.correctIndex !== 3) return `Expected correctIndex 3 (D), got ${q.correctIndex}`;
+          if (q.questionType !== "match") return `Expected questionType 'match', got '${q.questionType}'`;
+          if (!q.text.includes("Direct Personal Investigation") || !q.text.includes("Lowest response rate")) {
+            return `Stem text missing list items! Got:
+${q.text}`;
+          }
+          return true;
+        }
+      },
+      {
+        name: "Test Group 16: Word document <ol><li> numbering and separation",
+        isHtml: true,
+        input: `<ol>
+<li>Question one text here? A) Opt 1 B) Opt 2 Answer: A</li>
+<li>Question two text here? A) Opt 1 B) Opt 2 Answer: B</li>
+<li>Question three text here? A) Opt 1 B) Opt 2 Answer: A</li>
+</ol>`,
+        assert: (res, rawHtml) => {
+          const structured = convertHtmlToStructuredText(rawHtml);
+          const pipelineRes = runQuestionImportPipeline(structured);
+          if (pipelineRes.questions.length !== 3) return `Expected 3 questions from <ol><li>, got ${pipelineRes.questions.length}`;
+          if (pipelineRes.questions[0].correctIndex !== 0) return `Q1 expected correctIndex 0, got ${pipelineRes.questions[0].correctIndex}`;
+          if (pipelineRes.questions[1].correctIndex !== 1) return `Q2 expected correctIndex 1, got ${pipelineRes.questions[1].correctIndex}`;
+          return true;
+        }
+      }
+    ];
+    let passedCount = 0;
+    let failedCount = 0;
+    tests.forEach((t, i) => {
+      const card = document.createElement("div");
+      card.className = "test-card";
+      
+      try {
+        const res = t.isHtml ? runQuestionImportPipeline(convertHtmlToStructuredText(t.input)) : runQuestionImportPipeline(t.input);
+        const assertResult = t.assert(res, t.input);
+        if (assertResult === true) {
+          card.classList.add("pass");
+          card.innerHTML = `
+            <div>
+              <strong>${t.name}</strong>
+              <span class="badge pass">PASSED</span>
+            </div>
+            <div style="font-size: 13px; color: #94a3b8; margin-top: 5px;">
+              Detected: ${res.questions.length} questions | Status: ${res.questions.map(q => q.status).join(", ")}
+            </div>
+          `;
+          passedCount++;
+        } else {
+          card.classList.add("fail");
+          card.innerHTML = `
+            <div>
+              <strong>${t.name}</strong>
+              <span class="badge fail">FAILED</span>
+            </div>
+            <div style="color: #f87171; margin-top: 8px; font-size: 13px;">${assertResult}</div>
+            <pre>${JSON.stringify(res.questions, null, 2)}</pre>
+          `;
+          failedCount++;
+        }
+      } catch (err) {
+        card.classList.add("fail");
+        card.innerHTML = `
+          <div>
+            <strong>${t.name}</strong>
+            <span class="badge fail">ERROR</span>
+          </div>
+          <div style="color: #f87171; margin-top: 8px; font-size: 13px;">${err.message || err}</div>
+          <pre>${err.stack || ""}</pre>
+        `;
+        failedCount++;
+      }
+      resultsDiv.appendChild(card);
+    });
+    if (failedCount === 0) {
+      summaryStatus.textContent = "🎉 ALL TEST FIXTURES PASSED (100% SUCCESS)";
+      summaryStatus.style.color = "#34d399";
+    } else {
+      summaryStatus.textContent = `❌ ${failedCount} OF ${tests.length} TESTS FAILED`;
+      summaryStatus.style.color = "#f87171";
+    }
+    summaryMetrics.textContent = `Passed: ${passedCount} / ${tests.length} | Failed: ${failedCount}`;
+    window.testResults = { passed: passedCount, failed: failedCount, total: tests.length };
+  </script>
+</body>
+</html>
