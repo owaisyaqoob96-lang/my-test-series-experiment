@@ -107,7 +107,7 @@ const APPEARANCE_DEFAULTS = {
   contrast: "standard",
   uiFont: "system",
   uiSize: "medium",
-  testFont: "oxygen",
+  testFont: "system",
   testSize: 100 // percent (80% to 150%)
 };
 const VALID_THEMES = ["light", "dark", "lights-out"];
@@ -3306,12 +3306,14 @@ function renderPalette() {
   const markedCount = marked.size;
   const unattemptedCount = Math.max(0, currentQuestions.length - answeredCount);
   const statAnswered = document.getElementById("palette-stat-answered");
-  if (statAnswered) statAnswered.innerHTML = `<strong>${answeredCount}</strong> Answered`;
+  if (statAnswered) statAnswered.textContent = answeredCount;
   const statUnattempted = document.getElementById("palette-stat-unattempted");
-  if (statUnattempted) statUnattempted.innerHTML = `<strong>${unattemptedCount}</strong> Unanswered`;
+  if (statUnattempted) statUnattempted.textContent = unattemptedCount;
   const statMarked = document.getElementById("palette-stat-marked");
-  if (statMarked) statMarked.innerHTML = `<strong>${markedCount}</strong> Flagged`;
+  if (statMarked) statMarked.textContent = markedCount;
+
   const grid = document.getElementById("palette-grid");
+  if (!grid) return;
   grid.innerHTML = "";
   currentQuestions.forEach((q, i) => {
     const btn = document.createElement("button");
@@ -3327,7 +3329,17 @@ function renderPalette() {
     btn.className = cls;
     btn.textContent = i + 1;
     btn.setAttribute("aria-label", `Question ${i + 1}`);
-    btn.addEventListener("click", () => { currentIndex = i; renderQuestion(); });
+    btn.addEventListener("click", () => {
+      currentIndex = i;
+      renderQuestion();
+      if (isMobileView()) {
+        closeMobilePalette();
+      }
+      const testMain = document.querySelector(".test-main");
+      if (testMain) {
+        testMain.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
     grid.appendChild(btn);
   });
 }
@@ -3339,12 +3351,19 @@ function goPrev() {
   if (currentIndex > 0) currentIndex--;
   renderQuestion();
 }
-document.getElementById("btn-prev").addEventListener("click", goPrev);
-document.getElementById("btn-save-next").addEventListener("click", goNext);
-document.getElementById("btn-mark-review").addEventListener("click", () => {
-  marked.add(currentQuestions[currentIndex].id);
-  goNext();
-});
+const btnPrevEl = document.getElementById("btn-prev");
+if (btnPrevEl) btnPrevEl.addEventListener("click", goPrev);
+const btnSaveNextEl = document.getElementById("btn-save-next");
+if (btnSaveNextEl) btnSaveNextEl.addEventListener("click", goNext);
+const btnMarkReviewEl = document.getElementById("btn-mark-review");
+if (btnMarkReviewEl) {
+  btnMarkReviewEl.addEventListener("click", () => {
+    if (currentQuestions[currentIndex]) {
+      marked.add(currentQuestions[currentIndex].id);
+    }
+    goNext();
+  });
+}
 const btnFlagToggle = document.getElementById("btn-flag-toggle");
 if (btnFlagToggle) {
   btnFlagToggle.addEventListener("click", () => {
@@ -3358,21 +3377,21 @@ if (btnFlagToggle) {
     renderQuestion();
   });
 }
-document.getElementById("btn-clear").addEventListener("click", () => {
-  delete answers[currentQuestions[currentIndex].id];
-  renderQuestion();
-});
-document.getElementById("btn-submit-test").addEventListener("click", () => {
-  if (confirm("Submit the test now? You can't change answers after this.")) {
-    clearInterval(timerInterval);
-    submitTest();
-  }
-});
+const btnClearEl = document.getElementById("btn-clear");
+if (btnClearEl) {
+  btnClearEl.addEventListener("click", () => {
+    if (currentQuestions[currentIndex]) {
+      delete answers[currentQuestions[currentIndex].id];
+    }
+    renderQuestion();
+  });
+}
+
 // Pause & Resume control listeners
-const btnPauseTest = document.getElementById("btn-pause-test");
-if (btnPauseTest) btnPauseTest.addEventListener("click", pauseTest);
 const btnPauseHeader = document.getElementById("btn-pause-test-header");
 if (btnPauseHeader) btnPauseHeader.addEventListener("click", pauseTest);
+const btnPauseTest = document.getElementById("btn-pause-test");
+if (btnPauseTest) btnPauseTest.addEventListener("click", pauseTest);
 const btnPauseAlt = document.getElementById("btn-pause-test-alt");
 if (btnPauseAlt) btnPauseAlt.addEventListener("click", pauseTest);
 const btnResumePaused = document.getElementById("btn-resume-paused");
@@ -3395,49 +3414,129 @@ const btnCancelResumeModal = document.getElementById("btn-cancel-resume-modal");
 if (btnCancelResumeModal) btnCancelResumeModal.addEventListener("click", () => {
   document.getElementById("resume-confirm-modal").classList.add("hidden");
 });
+
 // ============================================================
-// Collapsible Question Palette Sidebar
+// Adaptive Question Palette (Desktop Side Panel & Mobile Slide-Over Drawer)
 // ============================================================
 let isPaletteCollapsed = sessionStorage.getItem("ts_palette_collapsed") === "true";
-function applyPaletteState() {
-  const shell = document.getElementById("test-shell") || document.querySelector(".test-shell");
-  const reopenTab = document.getElementById("palette-reopen-tab");
+
+function isMobileView() {
+  return window.innerWidth <= 860;
+}
+
+function openMobilePalette() {
+  const panel = document.getElementById("palette-panel");
+  const backdrop = document.getElementById("palette-backdrop");
   const toggleBtn = document.getElementById("btn-toggle-palette-header");
-  const toggleText = document.getElementById("palette-toggle-text");
-  const toggleIcon = document.getElementById("palette-toggle-icon");
-  const submitInline = document.getElementById("btn-submit-inline");
-  if (!shell) return;
-  shell.classList.toggle("palette-collapsed", isPaletteCollapsed);
-  if (reopenTab) reopenTab.classList.toggle("hidden", !isPaletteCollapsed);
-  if (submitInline) submitInline.classList.toggle("hidden", !isPaletteCollapsed);
-  if (toggleText) toggleText.textContent = isPaletteCollapsed ? "Show Palette" : "Hide Palette";
-  if (toggleIcon) toggleIcon.textContent = isPaletteCollapsed ? "⇤" : "⇥";
-  if (toggleBtn) {
-    toggleBtn.title = isPaletteCollapsed ? "Show Question Palette" : "Hide Question Palette";
+  if (panel) panel.classList.add("mobile-open");
+  if (backdrop) backdrop.classList.add("open");
+  if (toggleBtn) toggleBtn.setAttribute("aria-expanded", "true");
+}
+
+function closeMobilePalette() {
+  const panel = document.getElementById("palette-panel");
+  const backdrop = document.getElementById("palette-backdrop");
+  const toggleBtn = document.getElementById("btn-toggle-palette-header");
+  if (panel) panel.classList.remove("mobile-open");
+  if (backdrop) backdrop.classList.remove("open");
+  if (toggleBtn) toggleBtn.setAttribute("aria-expanded", "false");
+}
+
+function toggleMobilePalette() {
+  const panel = document.getElementById("palette-panel");
+  if (panel && panel.classList.contains("mobile-open")) {
+    closeMobilePalette();
+  } else {
+    openMobilePalette();
   }
 }
-function togglePalette() {
-  isPaletteCollapsed = !isPaletteCollapsed;
-  try {
-    sessionStorage.setItem("ts_palette_collapsed", isPaletteCollapsed ? "true" : "false");
-  } catch (e) {}
-  applyPaletteState();
+
+function applyPaletteState() {
+  const shell = document.getElementById("test-shell") || document.querySelector(".test-shell");
+  const toggleBtn = document.getElementById("btn-toggle-palette-header");
+  if (!shell) return;
+
+  if (isMobileView()) {
+    shell.classList.remove("palette-collapsed");
+    const panel = document.getElementById("palette-panel");
+    const isOpen = panel && panel.classList.contains("mobile-open");
+    if (toggleBtn) {
+      toggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      toggleBtn.title = isOpen ? "Close Question Palette" : "Open Question Palette";
+    }
+  } else {
+    closeMobilePalette();
+    shell.classList.toggle("palette-collapsed", isPaletteCollapsed);
+    if (toggleBtn) {
+      toggleBtn.setAttribute("aria-expanded", (!isPaletteCollapsed).toString());
+      toggleBtn.title = isPaletteCollapsed ? "Show Question Palette" : "Hide Question Palette";
+    }
+  }
 }
+
+function togglePalette() {
+  if (isMobileView()) {
+    toggleMobilePalette();
+  } else {
+    isPaletteCollapsed = !isPaletteCollapsed;
+    try {
+      sessionStorage.setItem("ts_palette_collapsed", isPaletteCollapsed ? "true" : "false");
+    } catch (e) {}
+    applyPaletteState();
+  }
+}
+
 const btnCollapsePalette = document.getElementById("btn-collapse-palette");
-if (btnCollapsePalette) btnCollapsePalette.addEventListener("click", togglePalette);
+if (btnCollapsePalette) {
+  btnCollapsePalette.addEventListener("click", () => {
+    if (isMobileView()) {
+      closeMobilePalette();
+    } else {
+      isPaletteCollapsed = true;
+      try { sessionStorage.setItem("ts_palette_collapsed", "true"); } catch (e) {}
+      applyPaletteState();
+    }
+  });
+}
+
 const btnTogglePaletteHeader = document.getElementById("btn-toggle-palette-header");
 if (btnTogglePaletteHeader) btnTogglePaletteHeader.addEventListener("click", togglePalette);
-const paletteReopenTab = document.getElementById("palette-reopen-tab");
-if (paletteReopenTab) paletteReopenTab.addEventListener("click", togglePalette);
-const btnSubmitInline = document.getElementById("btn-submit-inline");
-if (btnSubmitInline) {
-  btnSubmitInline.addEventListener("click", () => {
+
+const paletteBackdrop = document.getElementById("palette-backdrop");
+if (paletteBackdrop) {
+  paletteBackdrop.addEventListener("click", closeMobilePalette);
+}
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && isMobileView()) {
+    closeMobilePalette();
+  }
+});
+
+window.addEventListener("resize", () => {
+  applyPaletteState();
+});
+
+const btnSubmitAction = document.getElementById("btn-submit-action");
+if (btnSubmitAction) {
+  btnSubmitAction.addEventListener("click", () => {
     if (confirm("Submit the test now? You can't change answers after this.")) {
-      clearInterval(timerInterval);
+      if (timerInterval) clearInterval(timerInterval);
       submitTest();
     }
   });
 }
+
+const btnSubmitTest = document.getElementById("btn-submit-test");
+if (btnSubmitTest) {
+  btnSubmitTest.addEventListener("click", () => {
+    if (confirm("Submit the test now? You can't change answers after this.")) {
+      if (timerInterval) clearInterval(timerInterval);
+      submitTest();
+    }
+  });
+}
+
 async function submitTest() {
   isTestActive = false; 
   isTestPaused = false;

@@ -17,7 +17,7 @@
       var c = localStorage.getItem('ts_contrast') || 'standard';
       var f = localStorage.getItem('ts_ui_font') || 'system';
       var s = localStorage.getItem('ts_ui_size') || 'medium';
-      var tf = localStorage.getItem('ts_test_font') || 'oxygen';
+      var tf = localStorage.getItem('ts_test_font') || 'system';
       var palId = localStorage.getItem('ts_palette_id') || '1';
       var rawTs = localStorage.getItem('ts_test_size') || '100';
       var numTs = parseInt(rawTs, 10);
@@ -1435,7 +1435,12 @@
   <!-- ============ PAUSE TEST MODAL (ACTIVE PAUSE OVERLAY) ============ -->
   <div id="pause-modal" class="modal-overlay hidden" style="z-index: 2000; backdrop-filter: blur(8px); background: rgba(0,0,0,0.75);">
     <div class="modal-content" style="max-width: 480px; text-align: center; padding: 30px 24px;">
-      <div style="font-size: 42px; margin-bottom: 10px;">⏸️</div>
+      <div class="pause-modal-icon-badge" style="width: 52px; height: 52px; border-radius: 50%; background: var(--surface-raised); border: 1px solid var(--line-strong); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 12px; color: var(--primary);">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+          <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+          <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+        </svg>
+      </div>
       <h2 id="pause-modal-title" style="margin-bottom: 8px; color: var(--text);">Test Paused</h2>
       <p id="pause-modal-sub" style="color: var(--text-muted); font-size: 14px; margin-bottom: 20px;">
         Your progress and remaining time have been safely saved.
@@ -1467,10 +1472,10 @@
 
       <div style="display: flex; flex-direction: column; gap: 10px;">
         <button type="button" class="btn btn-primary" id="btn-resume-paused" style="width: 100%; font-size: 15px; padding: 12px; font-weight: 600;">
-          ▶️ Resume Test Now
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg> <span>Resume Test Now</span>
         </button>
         <button type="button" class="btn" id="btn-exit-to-dashboard" style="width: 100%; font-size: 14px; padding: 10px;">
-          📁 Exit to Dashboard
+          Exit to Dashboard
         </button>
         <button type="button" id="btn-discard-active-paused" style="background: none; border: none; color: var(--danger); font-size: 12px; cursor: pointer; padding: 6px; margin-top: 4px; text-decoration: underline;">
           Discard this attempt and start over
@@ -1512,103 +1517,144 @@
   <section id="view-test" class="hidden">
     <div class="test-shell" id="test-shell">
       <div class="test-main">
-        <div class="test-header">
-          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <!-- Compact Test Header & Toolbar -->
+        <header class="test-header" role="banner">
+          <div class="test-header-left">
             <div class="mashq-logo-slot" data-mashq-logo="horizontal" data-mashq-size="compact" style="flex-shrink: 0;" title="mashq"></div>
-            <div class="test-title" id="test-subject-name">Subject</div>
-            <div class="test-typo-bar" id="test-typo-bar" title="Adjust test typography">
-              <select id="test-font-family-select" class="test-typo-select" title="Test font family" aria-label="Test font family">
-                <option value="oxygen" selected>Oxygen</option>
-                <option value="inter">Inter</option>
-                <option value="system">System Default</option>
-                <option value="arial">Arial</option>
-                <option value="times">Times New Roman</option>
-              </select>
-              <div class="test-size-btn-group">
-                <button type="button" class="btn btn-quiet btn-xs" id="btn-test-font-decrease" title="Decrease font size (A−)" aria-label="Decrease font size">A−</button>
-                <span class="test-font-indicator" id="test-font-size-indicator" title="Current test font size">100%</span>
-                <button type="button" class="btn btn-quiet btn-xs" id="btn-test-font-increase" title="Increase font size (A+)" aria-label="Increase font size">A+</button>
-                <button type="button" class="btn btn-quiet btn-xs" id="btn-test-font-reset" title="Reset font size" aria-label="Reset font size">↺</button>
+            <h1 class="test-title" id="test-subject-name">Subject</h1>
+          </div>
+
+          <div class="test-header-right">
+            <!-- Consolidated Timer & Pause Control -->
+            <div class="test-timer-group">
+              <div class="header-timer" id="header-timer" title="Time Remaining" role="timer" aria-live="off">
+                <svg class="header-icon timer-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span id="timer-header">30:00</span>
               </div>
+              <button type="button" class="btn btn-pause-control" id="btn-pause-test-header" title="Pause test and save progress" aria-label="Pause test">
+                <svg class="header-icon pause-icon" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">
+                  <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+                  <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+                </svg>
+                <span id="pause-btn-text" class="pause-text">Pause</span>
+              </button>
             </div>
-          </div>
-          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-            <div class="header-timer" id="header-timer" title="Time Remaining">
-              <span>⏱️</span>
-              <span id="timer-header">30:00</span>
-            </div>
-            <button type="button" class="btn btn-quiet btn-sm btn-pause-action" id="btn-pause-test-header" title="Pause test and save progress">
-              ⏸️ Pause
-            </button>
-            <div class="q-count" id="q-count">Q 1 / 20</div>
-            <button type="button" class="btn btn-quiet btn-sm palette-toggle-btn" id="btn-toggle-palette-header" title="Toggle Question Palette" aria-label="Toggle Question Palette">
-              <span id="palette-toggle-icon">⇥</span>
-              <span id="palette-toggle-text">Palette</span>
-            </button>
-          </div>
-        </div>
 
+            <!-- Question Progress -->
+            <div class="q-count-badge" id="q-count" aria-live="polite">Q 1 / 20</div>
+
+            <!-- Single Question Palette Toggle -->
+            <button type="button" class="btn palette-toggle-btn" id="btn-toggle-palette-header" title="Toggle question palette" aria-label="Toggle question palette" aria-expanded="false" aria-controls="palette-panel">
+              <svg class="header-icon palette-grid-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+              </svg>
+              <span id="palette-toggle-text">Questions</span>
+            </button>
+          </div>
+        </header>
+
+        <!-- Question Metadata Bar -->
         <div class="q-meta-bar" id="q-meta-bar">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="q-badge" id="q-number-badge">Question 1</span>
-            <span id="q-topic" class="q-topic hidden"></span>
+          <div class="q-meta-info">
+            <span class="q-number-label" id="q-number-badge">Question 1</span>
+            <span id="q-topic" class="q-topic-tag hidden"></span>
           </div>
-          <button type="button" class="flag-toggle-btn" id="btn-flag-toggle" title="Flag question to review later">
-            <span id="flag-icon">⚐</span> <span id="flag-text">Flag for Review</span>
+          <button type="button" class="flag-toggle-btn" id="btn-flag-toggle" title="Flag question to review later" aria-pressed="false">
+            <svg class="flag-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+              <line x1="4" y1="22" x2="4" y2="15"></line>
+            </svg>
+            <span id="flag-text">Flag for Review</span>
           </button>
         </div>
 
-        <div class="q-text" id="q-text"></div>
-        <div id="q-options" role="radiogroup" aria-label="Answer choices"></div>
+        <!-- Question Body & Options -->
+        <main class="question-workspace" role="main">
+          <div class="q-text" id="q-text"></div>
+          <div id="q-options" role="radiogroup" aria-label="Answer choices"></div>
+        </main>
 
-        <div class="test-actions">
-          <button class="btn" id="btn-prev">← Previous</button>
-          <button class="btn btn-quiet" id="btn-clear">Clear response</button>
-          <button class="btn" id="btn-mark-review">Mark for review &amp; next</button>
-          <button class="btn btn-primary" id="btn-save-next">Save &amp; next →</button>
-          <button class="btn btn-danger btn-submit-inline hidden" id="btn-submit-inline" title="Submit test">
-            Submit test
-          </button>
-        </div>
+        <!-- Standardized Test Action Area -->
+        <footer class="test-actions" role="toolbar" aria-label="Test navigation and response actions">
+          <div class="test-actions-nav">
+            <button class="btn btn-secondary action-btn-prev" id="btn-prev" aria-label="Previous question">
+              <span aria-hidden="true">←</span> Previous
+            </button>
+            <button class="btn btn-primary action-btn-save" id="btn-save-next" aria-label="Save answer and go to next question">
+              Save &amp; next <span aria-hidden="true">→</span>
+            </button>
+          </div>
+          <div class="test-actions-aux">
+            <button class="btn btn-quiet action-btn-clear" id="btn-clear" aria-label="Clear selected answer">
+              Clear response
+            </button>
+            <button class="btn btn-secondary action-btn-mark" id="btn-mark-review" aria-label="Mark for review and proceed">
+              Mark for review &amp; next
+            </button>
+            <button class="btn btn-danger-outline action-btn-submit" id="btn-submit-action" title="Submit test">
+              Submit test
+            </button>
+          </div>
+        </footer>
       </div>
 
-      <div class="palette-panel" id="palette-panel">
+      <!-- Question Palette Overlay Backdrop (Mobile Drawer) -->
+      <div class="palette-backdrop" id="palette-backdrop" aria-hidden="true"></div>
+
+      <!-- Question Palette Panel (Docked on Desktop, Drawer on Mobile) -->
+      <aside class="palette-panel" id="palette-panel" role="region" aria-label="Question Palette">
         <div class="palette-topbar">
-          <span class="palette-heading">Question Palette</span>
-          <button type="button" class="btn btn-quiet btn-sm palette-collapse-btn" id="btn-collapse-palette" title="Collapse Question Palette" aria-label="Collapse Question Palette">
-            <span>Hide ⇥</span>
+          <div class="palette-title-wrap">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+              <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+              <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+              <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+            </svg>
+            <span class="palette-heading">Questions</span>
+          </div>
+          <button type="button" class="btn btn-quiet btn-sm palette-collapse-btn" id="btn-collapse-palette" title="Close question palette" aria-label="Close question palette">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+            <span class="collapse-btn-text">Close</span>
           </button>
         </div>
-        <div class="timer-row">
-          <div class="timer" id="timer">30:00</div>
-          <button type="button" class="btn btn-sm btn-pause-action" id="btn-pause-test" title="Pause test and save progress">
-            ⏸️ Pause
-          </button>
-        </div>
-        <div class="palette-summary-strip" id="palette-summary-strip">
-          <span class="palette-stat answered" id="palette-stat-answered"><strong>0</strong> Answered</span>
-          <span class="palette-stat unattempted" id="palette-stat-unattempted"><strong>0</strong> Unanswered</span>
-          <span class="palette-stat marked" id="palette-stat-marked"><strong>0</strong> Flagged</span>
-        </div>
-        <div class="legend">
-          <div class="legend-item"><span class="legend-dot answered"></span>Answered</div>
-          <div class="legend-item"><span class="legend-dot not-answered"></span>Not answered</div>
-          <div class="legend-item"><span class="legend-dot marked"></span>Flagged</div>
-          <div class="legend-item"><span class="legend-dot not-visited"></span>Not visited</div>
-        </div>
-        <div class="palette-grid" id="palette-grid"></div>
-        <div class="submit-block" style="display: flex; flex-direction: column; gap: 8px;">
-          <button type="button" class="btn btn-quiet btn-pause-action" style="width: 100%; justify-content: center;" id="btn-pause-test-alt">
-            ⏸️ Pause Test
-          </button>
-          <button class="btn btn-danger" style="width:100%" id="btn-submit-test">Submit test</button>
-        </div>
-      </div>
 
-      <!-- Floating reopen tab docked on right screen edge when sidebar is collapsed -->
-      <button type="button" id="palette-reopen-tab" class="palette-reopen-tab hidden" title="Open Question Palette" aria-label="Open Question Palette">
-        <span>◀ Question Palette</span>
-      </button>
+        <!-- Compact Status Summary Strip -->
+        <div class="palette-summary-strip" id="palette-summary-strip" aria-label="Question statistics">
+          <div class="palette-stat answered">
+            <span class="stat-count" id="palette-stat-answered">0</span>
+            <span class="stat-label">Answered</span>
+          </div>
+          <div class="palette-stat unattempted">
+            <span class="stat-count" id="palette-stat-unattempted">0</span>
+            <span class="stat-label">Unanswered</span>
+          </div>
+          <div class="palette-stat marked">
+            <span class="stat-count" id="palette-stat-marked">0</span>
+            <span class="stat-label">Flagged</span>
+          </div>
+        </div>
+
+        <!-- Compact Legend -->
+        <div class="palette-legend" aria-label="Status legend">
+          <div class="legend-item"><span class="legend-dot dot-answered"></span>Answered</div>
+          <div class="legend-item"><span class="legend-dot dot-not-answered"></span>Unanswered</div>
+          <div class="legend-item"><span class="legend-dot dot-marked"></span>Flagged</div>
+          <div class="legend-item"><span class="legend-dot dot-not-visited"></span>Not visited</div>
+        </div>
+
+        <!-- Question Grid -->
+        <div class="palette-grid" id="palette-grid" role="group" aria-label="Question list"></div>
+      </aside>
     </div>
   </section>
 
